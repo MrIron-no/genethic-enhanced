@@ -1,0 +1,127 @@
+#!/usr/bin/perl
+
+use strict;
+
+my $id;
+
+if ( `id` =~ /uid=(\d+)/ )
+{ $id = $1; }
+
+if ( $id == 0 )
+{
+	print "You're NOT allowed to run the installing as root.\n";
+	print "Please, su <username> and re-run the installation script.\n";
+	print "Installation aborted.\n";
+	exit 1;
+}
+
+print "checking installation directory.\n";
+my $status = 0;
+
+if ( $ARGV[0] )
+{
+	if ( $ARGV[0] =~ /^\// ) {
+		if ( -r "$ARGV[0]" )
+		{
+			if ( -d "$ARGV[0]" )
+			{
+				if ( -w "$ARGV[0]" )
+				{
+					$status = 1;
+				}
+				else
+				{
+					print "cannot write in $ARGV[0]\n";
+				}
+			}
+			else
+			{
+				print "$ARGV[0] is not a directory.\n";
+			}
+		}
+		elsif ( $ARGV[1] eq '--force' )
+		{
+			system("mkdir -p $ARGV[0]");
+			$status = 1;
+		}
+		else
+		{
+			print "$ARGV[0] doesnt exist. use $0 $ARGV[0] --force\n";
+		}
+	}
+	else
+	{
+		print "installation directory must be an ABSOLUTE PATH!\n";
+		print "example: $0 /home/genethic\n";
+	}
+}
+else
+{
+	print "syntax : $0 /path/to/installation/directory\n";
+	print "example: $0 /home/genethic\n";
+}
+
+if ( !$status ) { print "Installation aborted.\n"; exit 1; }
+
+print "testing required perl modules:\n";
+my $module;
+foreach $module (split(/ /,"strict File::Basename IO::Socket POSIX Time::Local Time::HiRes File::Copy"))
+{
+	printf("    %-15s    ",$module);
+	if ( `/usr/bin/perl -M$module -e 'print "1";' 2>&1` ne '1' )
+	{
+		$status = 0;
+		print "error: perl module $module not installed. try '/usr/bin/perl -MCPAN -i install $module'\n";
+	}
+	else
+	{
+		print "ok\n";
+	}
+}
+
+if ( $status )
+{
+	print "creating directories...\n";
+	foreach(split(/ /,"etc bin mrtg var"))
+	{
+		print "    $ARGV[0]/$_\n";
+		system("mkdir $ARGV[0]/$_");
+	}
+
+	print "installing files...\n";
+	my $sed = $ARGV[0];
+	$sed =~ s/\//\\\\\\\\\//g;
+	foreach(split(/ /,"etc/sample.conf bin/runmrtg.pl mrtg/.htaccess"))
+	{
+		print "    $ARGV[0]/$_\n";
+		my $file = $_;
+		open(FILE,">$ARGV[0]/$file");
+		open(INSTALL,"src/$file");
+		while(<INSTALL>)
+		{
+			s/\%INSTALL_PATH\%/$ARGV[0]/g;
+			print FILE $_;
+		}
+		close(INSTALL);
+		close(FILE);
+	}
+
+	foreach(split(/ /,"bin/genethic.pl mrtg/.htpasswd README LICENSE"))
+	{
+		print "    $ARGV[0]/$_\n";
+		system("cp src/$_ $ARGV[0]/$_");
+	}
+
+	print "setting permissions...\n";
+	system("chmod -R u+rw,g-rwx,o-rwx $ARGV[0]");
+	system("chmod u+x $ARGV[0]/bin/runmrtg.pl $ARGV[0]/bin/genethic.pl $ARGV[0]/bin $ARGV[0]/etc $ARGV[0]/mrtg $ARGV[0]/var");   
+	system("chmod g+rwx,o+rwx $ARGV[0]/mrtg");
+	system("chmod g+rw,o+rw $ARGV[0]/mrtg/.htaccess $ARGV[0]/mrtg/.htpasswd");
+
+	print "cd $ARGV[0] and read the README file carefully!!!\n";
+	print "Installation done.\n";
+}
+else
+{
+	exit 1;
+}

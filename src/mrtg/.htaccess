@@ -1,0 +1,15 @@
+IndexIgnore .htaccess */.??* *~ *# */HEADER* */README* */_vti*
+
+<Limit GET POST>
+order deny,allow
+deny from all
+allow from all
+require valid-user
+</Limit>
+<Limit PUT DELETE>
+order deny,allow
+deny from all
+</Limit>
+AuthName GenEthic
+AuthType basic
+AuthUserFile %INSTALL_PATH%/mrtg/.htpasswd
