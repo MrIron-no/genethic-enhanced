@@ -568,7 +568,7 @@ sub timed_events
 							elsif ( $conf{locglineaction} =~ /gline/i )
 							{
 								queuemsg(2,"NOTICE \@$conf{channel} :GLINE for '$rname' -> '$rnamewild' ($newmatch users)");
-#								queuemsg(2,"GLINE +\$R$rnamewild $conf{rnameglinetime} :Auto-Klined for $conf{rnameglinetime} seconds.");
+								queuemsg(2,"GLINE +\$R$rnamewild $conf{rnameglinetime} :Auto-Klined for $conf{rnameglinetime} seconds.");
 							}
 						}
 						else
@@ -614,7 +614,7 @@ sub timed_events
 						elsif ( $conf{locglineaction} =~ /gline/i )
 						{
 							queuemsg(2,"NOTICE \@$conf{channel} :GLINE for '$userip' ($counter{$userip} users)");
-#							queuemsg(2,"GLINE \!\+*\@$userip $conf{ipglinetime} :Auto-Klined for $conf{ipglinetime} seconds.");
+							queuemsg(2,"GLINE \!\+*\@$userip $conf{ipglinetime} :Auto-Klined for $conf{ipglinetime} seconds.");
 						}
 					}
 				}
