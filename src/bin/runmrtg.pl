@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/local/bin/perl
 
 my $xsize = 400;
 my $ysize = 100;
@@ -57,10 +57,13 @@ open(HTML,">$path/mrtg/index.html");
 
 print HTML <<EOF;
 <html>
-  <title>GenEthic bot graphics</title>
+  <head>
+    <meta content="width=device-width,initial-scale=1" name="viewport">
+    <title>GenEthic bot graphics</title>
+  </head>
   <body bgcolor=#F0ECEB>
   <font face=Verdana>
-  <h2>GenEthic graphics</h2><br><br>
+  <h2>GenEthic</h2><br><br>
 <b>LOCAL USERS</b><br>
 <a href=local_users.html><img src=local_users-day.png border=0></a><br><br>
 <b>GLOBAL USERS</b><br>
@@ -189,6 +192,30 @@ YSize[rping_$hub]: $ysize
 Options[rping_$hub]: growright, noinfo, nopercent, gauge, absolute, unknaszero, withzeroes, nobanner, nolegend, integer, noo
 YLegend[rping_$hub]: RPING
 ShortLegend[rping_$hub]: ms
+
+EOF
+
+	}
+	elsif ( $name =~ /^SENDQ_(.*)$/ )
+	{
+		my $hub = $1;
+		print HTML <<EOF;
+<b>SENDQ $hub</b><br>
+<a href=sendq_$hub.html><img src=sendq_$hub\-day.png border=0></a><br><br>
+EOF
+
+		print MRTG <<EOF;
+Target[sendq_$hub]: `cat $path/mrtg/sendq_$hub.dat`
+Title[sendq_$hub]: SENDQ $hub
+PageTop[sendq_$hub]: <h2>SENDQ $hub</h2>
+MaxBytes[sendq_$hub]: 1000
+AbsMax[sendq_$hub]: 1000000
+WithPeak[sendq_$hub]: wmy
+XSize[sendq_$hub]: $xsize
+YSize[sendq_$hub]: $ysize
+Options[sendq_$hub]: growright, noinfo, nopercent, gauge, absolute, unknaszero, withzeroes, nobanner, nolegend, integer, noo
+YLegend[sendq_$hub]: SENDQ
+ShortLegend[sendq_$hub]: bytes
 
 EOF
 

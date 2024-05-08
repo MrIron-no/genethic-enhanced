@@ -14,21 +14,20 @@
 
  _________________________________________________________________________
 /                                                                         \
-|                 GenEthic IRC Server Monitoring Bot                      |
+|            GenEthic-Enhanced IRC Server Monitoring Bot                  |
 |_________________________________________________________________________|
 |                                                                         |
-| Version      : 2.0.0                                                    |
+| Version      : 1.0.0                                                    |
 | Base Concept : Pascal Gloor & Mehmet Akcin                              |
-| Coder        : Pascal Gloor                                             |
-| Source       : http://www.genethic.ch/download/                         |
-| Bug Report   : bugs@genethic.ch                                         |
-| Date         : 23 Jan 2004                                              |
+| Coder        : MrIron                                                   |
+| Source       : https://github.com/MrIron-no/genethic-enhanced           |
 |                                                                         |
 \_________________________________________________________________________/
 
 
 HISTORY
 
+ Original GenEthic:
  After getting my server linked to Undernet, I had some ideas about
  having a bot, not like the others, but more like looking after what
  the server is doing, how many users connecting, and it's general
@@ -37,6 +36,10 @@ HISTORY
  and so on. That's why I decided to rewrite it completly and that's also
  why you are reading this now ;-P
 
+ GenEthic-Enhanced:
+ After Oslo.NO.EU.UnderNet.org resurfaced and linked in 2024, we found this 
+ great service on the still-existing website of Geneva.CH.* from back-in-the-days.
+ The bot is almost the same - but with some new additional features.
 
 REQUIREMENTS
 
@@ -51,40 +54,19 @@ REQUIREMENTS
 
     - Running ircu2.10.11.06 (available at http://coder-com.undernet.org)
       note: this bot is NOT compatible with any other IRC daemon!
-    - An o line(local oper) for the bot.
-    - An I line with password (recommended but optional).
-    - An Y line with at least 3Mbytes of SendQ.
+    - An o line(local oper) for the bot with the following privileges:
+	walk_lchan = yes;
+	deop_lchan = yes;
+	see_chan = yes; # Only if locgline is enabled
+	unlimit_query = yes; # Only if locgline is enabled
+	rehash = no;
+	local_jupe = no;
+	local_gline = no; # Yes if locgline is enabled.
+
+    - A Class block with at least 3Mbytes of SendQ.
     - Enable the following features in your ircd.conf:
 
-        F:OPER_MODE_LCHAN:TRUE
-        F:OPER_WALK_THROUGH_LMODES:TRUE
-        F:SHOW_INVISIBLE_USERS:TRUE
-        F:SHOW_ALL_INVISIBLE_USERS:TRUE
-        F:UNLIMIT_OPER_QUERY:TRUE
-        F:LOCOP_LGLINE:TRUE
-        F:LOCOP_WIDE_GLINE:TRUE
-        F:OPER_KILL:TRUE
-        F:LOCOP_SEE_IN_SECRET_CHANNELS:TRUE
-        F:NO_OPER_DEOP_LCHAN:TRUE
-        F:CONNEXIT_NOTICES:TRUE
-
-        If you dont enable all of these features the bot may work,
-        but for sure not at 100% of its capacity.
-
-	NOTE: All those F:Lines are compatible with the actual Undernet
-              policy.
-
- Compatibility with the Undernet Policy:
-
-     NOTE: If you do not follow the rules described below,
-           you may have your server delinked!
-
-     You MUST announce to the admins mailing list the fact that
-     you have added a new local oper, even if it's a bot!
-
-     The bot is reporting confidential (oper only) informations.
-     You must ensure the security of the bot's home directory and
-     any other possible access to the bot.
+	"CONNEXIT_NOTICES" = "TRUE";
 
 INSTALLATION
 
@@ -116,11 +98,9 @@ UNDERSTANDING BOT CHANNEL OUTPUT
  Example:
 
    -bot:@&channel- @ 6454(5.60%)/115338 (+208/-246). No 4/29. 48620(+9)chans, 67 unknown
-   -bot:@&channel- @ RPING  -> hub1:973 hub2:86 hub3:186 hub_link 4d6h46m (h69.eu)
+   -bot:@&channel- @ RPING  -> hub2:25(+0) hub3:19(+0)
+   -bot:@&channel- @ UPLINK -> [hub1[rp:19(+0) sq:0(+0) up:1d0h53m]
    -bot:@&channel- @ TRAFFIC-> xl0 904/2471 kbps 1705/1599 pps xl1 209/49 kbps 52/38 pps
-
-   -bot:@&channel- @ 5492(4.28%)/128036 (+147/-118). No 15/26. 47175(-22)chans, ircu 16 days, 6:11:37
-   -bot:@&channel- @ RPING-> h54.eu:140 h22.eu:96 h69.eu:182 h12.eu:148 h25.eu:229 h51.us:353, hub_link 2d15h0m (h22.eu)
 
    on the first line, in the order the fields appear:
 
@@ -137,11 +117,13 @@ UNDERSTANDING BOT CHANNEL OUTPUT
 
   on the second line:
 
-     - last received rping results of all the hubs configured in your
-       server config. values are in miliseconds.
-     - the hub name which you're currectly connected to and the uptime of this link.
+     - the last received rping results of all the hubs configured in your
+       server config to which the server is not linked. 
+  on the third line:
+     - last received rping result and sendq result for linked server(s) and uptime. 
+       rping values are in miliseconds.
 
-  on the third line(1):
+  on the fourth line(1):
 
      - traffic status for all the local interfaces(2). its always shown in the
        format in/out, first 'kbps' then 'pps' (packets per second).
@@ -160,7 +142,7 @@ USAGE OF THE BOT
  OPER command.
 
  Once in the channel you may communicate with the bot. Most of the stuff
- happens thru the DCC interface. simply '/msg bot dcc' and the bot will
+ happens thru the DCC interface. simply '/msg bot dcc <listen ip>' and the bot will
  start a dcc. you'll need a password to connect to the dcc and it will
  be given by the bot in the channel.
  -> *bot* dcc
@@ -186,15 +168,20 @@ on 1:NOTICE:*:&channel:{
  favorite website. Be SURE to protect the graphs. kiddies love to see
  the graphs drawing buildings while they attack your server!
 
+ The bot supports iPhone push notifications throgh pushover, and each user tokens
+ can be added to the configuration file.
+
+ As a new feature, the bot has a "hub mode" which will ommit client statistics. In hub mode, the 
+ rping reporting for non-connected C/N's will be limited to other hubs (i.e. with the H flag in /stats v).
+
+ Reporting to the back channel can be deactivated in the config. The back channel will then only receive warnings. 
+ The bot will continue to create the stats files which can be utilised by MRTG or Munin.
+
+ Inluded are also munin-plugins to show stats on number of channels, global and local clients
+ rping and sendq.
+
  And now, HAVE FUN!
 
-
-CONTACT
-
- For BugReport/questions/remarks/ideas you can :
-
-    Email      : bugs@genethic.ch
-    Web        : http://www.genethic.ch/download
 
 COPYRIGHT
 

@@ -1,0 +1,68 @@
+#!/usr/bin/env perl
+# -*- perl -*-
+
+=head1 NAME
+
+irc - Plugin to graph the number of channels on an IRC network from GenEthic.
+
+=head1 CONFIGURATION
+
+You must set env.path to the genethic.log file outputted by GenEthic.
+
+  [irc]
+    env.logdir  /home/bot/var/genethic.log
+
+=head1 AUTHOR
+
+MrIron <iron@masterbofh.org>
+
+=head1 LICENSE
+
+GPLv3
+
+=head1 MAGIC MARKERS
+
+  #%# family=manual
+  #%# capabilities=autoconf
+
+=cut
+
+use POSIX;
+
+my $LOGDIR = $ENV{'logdir'} || '/usr/home/bot/var';
+
+my $modification = -M "$LOGDIR/genethic.log";
+my $lastupdated = ceil(time() - $modification);
+
+if ($ARGV[0] and $ARGV[0] eq "autoconf") {
+  if ( ! -r "$LOGDIR/genethic.log" ) {
+    print "log file not found or wrong permissions\n";
+    exit 0;
+  }
+  print "yes\n";
+  exit 0;
+}
+
+if($ARGV[0] and $ARGV[0] eq "config") {
+    print "host_name $ENV{FQDN}\n";
+    print "graph_title irc channels\n";
+    print "graph_category irc\n";
+    print "graph_order channels\n";
+    print "graph_args -l 0\n";
+    print "channels.label channels\n";
+    print "channels.draw LINE2\n";
+    exit 0;
+}
+
+open(LOG,"$LOGDIR/genethic.log");
+while(<LOG>)
+{
+	chop;
+	my ($name,$value)=split(/:/);
+
+	$data{$name} = $value;
+}
+
+close(LOG);
+
+print "channels.value $lastupdated:$data{CHANNEL}\n";

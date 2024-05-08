@@ -1,0 +1,74 @@
+#!/usr/bin/env perl
+# -*- perl -*-
+
+=head1 NAME
+
+irc - Plugin to graph the number of clients on an IRC network from GenEthic. 
+
+=head1 CONFIGURATION
+
+You must set env.path to the genethic.log file outputted by GenEthic.
+
+  [irc]
+    env.logdir  /home/bot/var/genethic.log
+
+=head1 AUTHOR
+
+MrIron <iron@masterbofh.org>
+
+=head1 LICENSE
+
+GPLv3
+
+=head1 MAGIC MARKERS
+
+  #%# family=manual
+  #%# capabilities=autoconf
+
+=cut
+
+use POSIX;
+
+my $LOGDIR = $ENV{'logdir'} || '/usr/home/bot/var';
+
+my $modification = -M "$LOGDIR/genethic.log";
+my $lastupdated = ceil(time() - $modification);
+
+if ($ARGV[0] and $ARGV[0] eq "autoconf") {
+  if ( ! -r "$LOGDIR/genethic.log" ) {
+    print "log file not found or wrong permissions\n";
+    exit 0;
+  }
+  print "yes\n";
+  exit 0;
+}
+
+if($ARGV[0] and $ARGV[0] eq "config") {
+    print "host_name $ENV{FQDN}\n";
+    print "graph_title irc users\n";
+    print "graph_category irc\n";
+    print "graph_order local_clients global_clients max_local_clients\n";
+    print "graph_args -l 0\n";
+    print "local_clients.label local clients\n";
+    print "local_clients.draw LINE2\n";
+    print "global_clients.label global clients\n";
+    print "global_clients.draw LINE2\n";
+    print "max_local_clients.label max local clients\n";
+    print "max_local_clients.draw LINE2\n";
+    exit 0;
+}
+
+open(LOG,"$LOGDIR/genethic.log");
+while(<LOG>)
+{
+	chop;
+	my ($name,$value)=split(/:/);
+
+	$data{$name} = $value;
+}
+
+close(LOG);
+
+print "local_clients.value $lastupdated:$data{LOCAL_USERS}\n";
+print "global_clients.value $lastupdated:$data{GLOBAL_USERS}\n";
+print "max_local_clients.value $lastupdated:$data{MAX_LOCAL_USERS}\n";

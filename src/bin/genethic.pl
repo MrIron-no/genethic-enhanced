@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/local/bin/perl
 #
 #    =====================================================================
 #    |                   SPALEWARE LICENSE (Revision 0.1)                |
@@ -30,10 +30,11 @@ use POSIX "setsid";
 use Time::Local;
 use Time::HiRes qw (sleep);
 use File::Copy;
+use LWP::UserAgent;
 
 $|=1;
 
-my $version = '2.0.8';
+my $version = '1.0';
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = "IGNORE";
@@ -78,7 +79,7 @@ while(1)
 				{
 					queuemsg(1,"PASS $conf{serverpass}");
 				}
-				queuemsg(1,"USER $conf{ident} . . :GenEthic v$conf{version} - www.genethic.ch/download");
+				queuemsg(1,"USER $conf{ident} . . :$conf{rname}");
 				$data{nick} = get_nick();
 				queuemsg(1,"NICK $data{nick}");
 			}
@@ -124,6 +125,27 @@ while(1)
 	}
 	sleep(1);
 }
+
+
+sub push_notify($)
+{
+
+	if ( !$conf{pushenable} ) { return 0; }
+
+	my $message = $_[0];
+	my $url = 'https://api.pushover.net/1/messages.json';
+
+	foreach ( @{$conf{usertoken}} )
+	{
+		LWP::UserAgent->new()->post(
+		  "https://api.pushover.net/1/messages.json", [
+		  "token" =>  $conf{pushtoken},
+		  "user" =>  $_,
+		  "message" => $message,
+		]);
+	}
+}
+
 
 sub queuemsg
 {
@@ -204,6 +226,7 @@ sub timed_events
 			if ( $userchange =~ /^\d+$/ ) { $userchange = "+$userchange"; }
 	
 			queuemsg(2,"NOTICE \@$conf{channel} :WARNING Possible attack, $userchange (+$usermore/-$userless) users in $conf{cetimethres} seconds ($data{lusers}{locusers} users)");
+			push_notify("USER CHANGE: +$usermore/-$userless");
 			$data{notice}{lastprint} = time;
 		}
 		$data{notice}{lastcheck} = time;
@@ -279,90 +302,169 @@ sub timed_events
 					$rate{ob} = int ( $rate{ob} * 8 / 1024 );
 					$trafmsg .= " $ifname $rate{ib}/$rate{ob} kbps $rate{ip}/$rate{op} pps";
 				}
-
 			}
 		}
 
 		$data{status}{report} = time - (  time % $conf{pollinterval} );
 
-		my $pcent = sprintf("%0.2f%%",$data{lusers}{locusers}/$data{lusers}{glousers}*100);
-
-		my $moreless = "(\+$data{notice}{more}/\-$data{notice}{less})";
-
-		my $msg = "$data{lusers}{locusers}($pcent)/$data{lusers}{glousers} $moreless. ";
-
-		my $diff = 0;
-		if ( exists $data{last}{channels} )
+		if ( !$conf{hubmode} )
 		{
-			$diff = $data{lusers}{channels} - $data{last}{channels};
-		}
-
-		if ( $diff =~ /^\d+$/ ) { $diff ="+$diff"; }
-
-		my $servcount = $data{statsv}{$data{servername}}{users};
-		my $pos = 1;
-		my $all = 0;
-		foreach ( keys %{$data{statsv}} )
-		{
-			if ( $data{statsv}{$_}{users} > 5 )
+#			my $servcount = $data{statsv}{$data{servername}}{users};
+			my $servcount = $data{lusers}{locusers};
+			my $pos = 1;
+			my $all = 0;
+			foreach ( keys %{$data{statsv}} )
 			{
-				$all++;
+				if ( $data{statsv}{$_}{users} > 15 )
+				{
+					$all++;
+				}
+
+				if ( $servcount < $data{statsv}{$_}{users} )
+				{
+					$pos++;
+				}
 			}
 
-			if ( $servcount < $data{statsv}{$_}{users} )
+			if ( !$data{lusers}{unknown} ) { $data{lusers}{unknown} = 0; }
+			if ( !$data{notice}{more} ) { $data{notice}{more} = 0; }
+			if ( !$data{notice}{less} ) { $data{notice}{less} = 0; }
+
+			if ( $conf{reportenable} )
+			{ 
+				my $pcent = sprintf("%0.2f%%",$data{lusers}{locusers}/$data{lusers}{glousers}*100);
+
+				my $moreless = "(\+$data{notice}{more}/\-$data{notice}{less})";
+
+				my $statmsg = "$data{lusers}{locusers}($pcent)/$data{lusers}{glousers} $moreless. ";
+
+				my $diff = 0;
+				if ( exists $data{last}{channels} )
+				{
+					$diff = $data{lusers}{channels} - $data{last}{channels};
+				}
+
+				if ( $diff =~ /^\d+$/ ) { $diff ="+$diff"; }
+
+				$statmsg .= "No $pos/$all. ";
+				$statmsg .= "$data{lusers}{channels}($diff)chans, ";
+				$statmsg .= "$data{lusers}{unknown} unknown";
+
+				$data{last}{channels} = $data{lusers}{channels};
+
+				queuemsg(2,"NOTICE \@$conf{channel} :$statmsg");
+			}
+
+			print MRTG "LOCAL_USERS:$data{lusers}{locusers}\n";
+			print MRTG "GLOBAL_USERS:$data{lusers}{glousers}\n";
+			print MRTG "UNKNOWN_USERS:$data{lusers}{unknown}\n";
+			print MRTG "MAX_LOCAL_USERS:$data{lusers}{maxusers}\n";
+			print MRTG "CHANNEL:$data{lusers}{channels}\n";
+			print MRTG "POSITION:$pos\n";
+			print MRTG "USERS_PERCENT:" . int($data{lusers}{locusers}/$data{lusers}{glousers}*10000) . "\n";
+			print MRTG "USERS_MORE:$data{notice}{more}\n";
+			print MRTG "USERS_LESS:$data{notice}{less}\n";
+
+			$data{notice}{more} = 0;
+			$data{notice}{less} = 0;
+		}
+
+		my $rpingmsg;
+
+		foreach( keys %{$data{clines}} )
+		{
+			# We only want rping for unlinked C:lines. If SendQ exists, its linked.
+			# In HUBMODE, we only include other hubs.
+			if ( !exists $data{uplinks}{$_} && ( ( $conf{hubmode} && $data{statsv}{$_}{hub} ) || !$conf{hubmode} ) )
 			{
-				$pos++;
+				my $rpdiff = 0;
+				my $hub = $_;
+				$hub =~ s/\.$conf{networkdomain}//;
+
+				if ( exists $data{last}{clines}{$_} )
+				{
+					$rpdiff = $data{clines}{$_} - $data{last}{clines}{$_};
+					if ( $rpdiff =~ /^\d+$/ ) { $rpdiff ="+$rpdiff"; }
+					$rpingmsg .= "$hub:$data{clines}{$_}($rpdiff) ";
+				}
+				else
+				{
+					$rpingmsg .= "$hub:$data{clines}{$_} ";
+				}
+
+				if ( $data{clines}{$_} =~ /^\d+$/ )
+				{
+					print MRTG "RPING_$_:$data{clines}{$_}\n";
+					$data{last}{clines}{$_} = $data{clines}{$_};
+				}
 			}
 		}
 
-		$msg .= "No $pos/$all. ";
-		$msg .= "$data{lusers}{channels}($diff)chans, ";
-		$msg .= "$data{lusers}{unknown} unknown";
-
-		$data{last}{channels} = $data{lusers}{channels};
-
-		queuemsg(2,"NOTICE \@$conf{channel} :$msg");
-
-		print MRTG "LOCAL_USERS:$data{lusers}{locusers}\n";
-		print MRTG "GLOBAL_USERS:$data{lusers}{glousers}\n";
-		print MRTG "UNKNOWN_USERS:$data{lusers}{unknown}\n";
-		print MRTG "MAX_LOCAL_USERS:$data{lusers}{maxusers}\n";
-		print MRTG "CHANNEL:$data{lusers}{channels}\n";
-		print MRTG "POSITION:$pos\n";
-		print MRTG "USERS_PERCENT:" . int($data{lusers}{locusers}/$data{lusers}{glousers}*10000) . "\n";
-		print MRTG "USERS_MORE:$data{notice}{more}\n";
-		print MRTG "USERS_LESS:$data{notice}{less}\n";
-
-		$data{notice}{more} = 0;
-		$data{notice}{less} = 0;
-
-		my $hubs = "RPING  ->";
-		foreach( keys %{$data{hubs}} )
+		if ( $rpingmsg && $conf{reportenable} )
 		{
-			my $hub = $_;
-			$hub =~ s/\.$conf{networkdomain}//;
-			$hubs .= " $hub:$data{hubs}{$_}";
-			print MRTG "RPING_$_:$data{hubs}{$_}\n";
+			$rpingmsg =~ s/\s+$//;
+			queuemsg(2,"NOTICE \@$conf{channel} :RPING  -> $rpingmsg");
+		}
+
+		my $linkmsg;
+
+		foreach( keys %{$data{uplinks}} )
+		{
+			my $uplink = $_;
+			$uplink =~ s/\.$conf{networkdomain}//;
+
+			$linkmsg .= "$uplink\[";
+
+			if ( exists $data{clines}{$_} )
+			{
+				my $rpdiff = 0;
+
+				if ( exists $data{last}{rping}{$_} )
+				{
+					$rpdiff = $data{clines}{$_} - $data{last}{rping}{$_};
+					if ( $rpdiff =~ /^\d+$/ ) { $rpdiff ="+$rpdiff"; }
+					$linkmsg .= "rp:$data{clines}{$_}($rpdiff)";
+				}
+				else
+				{
+					$linkmsg .= "rp:$data{clines}{$_}";
+				}
+
+				$data{last}{rping}{$_} = $data{clines}{$_};
+
+				print MRTG "RPING_$_:$data{clines}{$_}\n";
+			}
+
+			my $sqdiff = 0;
+
+			if ( exists $data{last}{sendq}{$_} )
+			{
+				$sqdiff = $data{uplinks}{$_} - $data{last}{sendq}{$_};
+				if ( $sqdiff =~ /^\d+$/ ) { $sqdiff ="+$sqdiff"; }
+				$linkmsg .= " sq:$data{uplinks}{$_}($sqdiff)";
+			}
+			else
+			{
+				$linkmsg .= " sq:$data{uplinks}{$_}";
+			}
+
+			if ( $data{uplinks}{$_} =~ /^\d+$/ )
+			{
+				$data{last}{sendq}{$_} = $data{uplinks}{$_};
+				print MRTG "SENDQ_$_:$data{uplinks}{$_}\n";
+			}
+
+			my $uptime = easytime(time-$data{statsv}{$_}{linkts});
+			$linkmsg .= " up:$uptime] ";
+		}
+
+		if ( $linkmsg && $conf{reportenable} )
+		{
+			queuemsg(2,"NOTICE \@$conf{channel} :UPLINK -> $linkmsg");
 		}
 
 		close(MRTG);
 
-		# searching for uplink
-
-		my $uplink;
-		my $uptime;
-
-		foreach ( keys %{$data{statsv}} )
-		{
-			if ( $data{statsv}{$_}{uplink} eq $data{servername} && $_ ne $data{servername} )
-			{
-				$uplink = $_;
-				$uplink =~ s/\.$conf{networkdomain}//;
-				$uptime = easytime(time-$data{statsv}{$_}{linkts});
-			}
-		}
-		
-		queuemsg(2,"NOTICE \@$conf{channel} :$hubs hub_link $uptime ($uplink)");
 		if ( $trafmsg =~ /\d/ )
 		{
 			queuemsg(2,"NOTICE \@$conf{channel} :$trafmsg");
@@ -398,106 +500,126 @@ sub timed_events
 			}
 		}
 
-		# GLINE time
-
-		my %counter;
-
-		foreach ( keys %{$data{who}} )
+		# clone check time
+		if ( !$conf{hubmode} && $conf{locglineaction} !~ /disable/i )
 		{
-			my $rname = $data{who}{$_}{rname};
-			$rname =~ tr/[A-Z]/[a-z]/;
-			$counter{$rname}++;
-		}
-		my $rname;
-		foreach $rname ( keys %counter )
-		{
-			if ( $counter{$rname} >= $conf{rnameglinelimit} )
+			my %counter;
+
+			foreach ( keys %{$data{who}} )
 			{
-				# exceeds gline limit
+				my $rname = $data{who}{$_}{rname};
+				$rname =~ tr/[A-Z]/[a-z]/;
+				if ( length($rname) < 3 ) { next; }
 
-				my $ignore = 0;
-				foreach ( @{$conf{rnamelist}} )
+				$counter{$rname}++;
+			}
+			my $rname;
+			foreach $rname ( keys %counter )
+			{
+				if ( $counter{$rname} >= $conf{rnameglinelimit} )
 				{
-					my $match = wild2reg($_);
-					if ( $rname =~ /^$match$/ )
-					{
-						$ignore = 1;
-					}
-				}
+					# exceeds gline limit
 
-				if ( !$ignore )
-				{
-					my $rnamewild = '';
-					foreach (split(//,$rname))
+					my $ignore = 0;
+					foreach ( @{$conf{rnamelist}} )
 					{
-						if ( $_ =~ /(\w|\-|\=|\_|\;|\,|\.)/ )
+						my $match = wild2reg($_);
+						if ( $rname =~ /^$match$/ )
 						{
-							$rnamewild .= $_;
+							$ignore = 1;
+						}
+					}
+
+					if ( !$ignore )
+					{
+						my $rnamewild = '';
+						foreach (split(//,$rname))
+						{
+							if ( $_ =~ /(\w|\-|\=|\_|\;|\,|\.)/ )
+							{
+								$rnamewild .= $_;
+							}
+							else
+							{
+								$rnamewild .= "?";
+							}
+						}
+						my $rnamereg  = $rnamewild;
+						$rnamereg =~ s/\./\\./g;
+						$rnamereg =~ s/\?/./g;
+
+						# applying new rname on user list;
+
+						my $newmatch = 0;
+						foreach ( keys %{$data{who}} )
+						{
+							if ( $data{who}{$_}{rname} =~ /^$rnamereg$/i )
+							{
+								$newmatch++;
+							}
+						}
+
+						if ( $counter{$rname} eq $newmatch )
+						{
+							if ( $conf{locglineaction} =~ /warn/i )
+							{
+								queuemsg(2,"NOTICE \@$conf{channel} :CLONE WARNING:: '$rname' -> '$rnamewild' ($newmatch users)");
+							}
+							elsif ( $conf{locglineaction} =~ /gline/i )
+							{
+								queuemsg(2,"NOTICE \@$conf{channel} :GLINE for '$rname' -> '$rnamewild' ($newmatch users)");
+#								queuemsg(2,"GLINE +\$R$rnamewild $conf{rnameglinetime} :Auto-Klined for $conf{rnameglinetime} seconds.");
+							}
 						}
 						else
 						{
-							$rnamewild .= "?";
+							if ( $conf{locglineaction} =~ /gline/i )
+							{
+								queuemsg(2,"NOTICE \@$conf{channel} :GLINE WARNING will not set gline for '$rname' (gline on '$rnamewild') should affect $counter{$rname} users, but will affect $newmatch users. Please take a manual action!");
+							}
 						}
-					}
-					my $rnamereg  = $rnamewild;
-					$rnamereg =~ s/\./\\./g;
-					$rnamereg =~ s/\?/./g;
-
-					# applying new rname on user list;
-
-					my $newmatch = 0;
-					foreach ( keys %{$data{who}} )
-					{
-						if ( $data{who}{$_}{rname} =~ /^$rnamereg$/i )
-						{
-							$newmatch++;
-						}
-					}
-
-					if ( $counter{$rname} eq $newmatch )
-					{
-						queuemsg(2,"NOTICE \@$conf{channel} :GLINE for '$rname' -> '$rnamewild' ($newmatch users)");
-						queuemsg(2,"GLINE +\$R$rnamewild $conf{rnameglinetime} :Auto-Glined for $conf{rnameglinetime} seconds.");
-					}
-					else
-					{
-						queuemsg(2,"NOTICE \@$conf{channel} :GLINE WARNING will not set gline for '$rname' (gline on '$rnamewild') should affect $counter{$rname} users, but will affect $newmatch users. Please take a manual action!");
 					}
 				}
 			}
-		}
-		undef %counter;
+			undef %counter;
 
-		# IP GLINE TIME
-		foreach ( keys %{$data{who}} )
-		{
-			my $cnet = $data{who}{$_}{ip};
-			$cnet =~ s/\.\d+$/\.\*/;
-			$counter{$cnet}++;
-		}
-
-		my $userip;
-		foreach $userip ( keys %counter )
-		{
-			if ( $counter{$userip} >= $conf{ipglinelimit} )
+			# Check for IP clones
+			foreach ( keys %{$data{who}} )
 			{
-				my $ignore = 0;
-				foreach ( @{$conf{iplist}} )
+				my $cnet = $data{who}{$_}{ip};
+				$cnet =~ s/\.\d+$/\.\*/;
+				$counter{$cnet}++;
+			}
+
+			my $userip;
+			foreach $userip ( keys %counter )
+			{
+				if ( $counter{$userip} >= $conf{ipglinelimit} )
 				{
-					my $match = wild2reg($_);
-					if ( $userip =~ /^$match$/ )
+					my $ignore = 0;
+					foreach ( @{$conf{iplist}} )
 					{
-						$ignore = 1;
+						my $match = wild2reg($_);
+						if ( $userip =~ /^$match$/ )
+						{
+							$ignore = 1;
+						}
 					}
-				}
-				if ( !$ignore )
-				{
-					queuemsg(2,"NOTICE \@$conf{channel} :GLINE for '$userip' ($counter{$userip} users)");
-					queuemsg(2,"GLINE \!\+*\@$userip $conf{ipglinetime} :Auto-Glined for $conf{ipglinetime} seconds.");
+					if ( !$ignore )
+					{
+						if ( $conf{locglineaction} =~ /warn/i )
+						{
+							queuemsg(2,"NOTICE \@$conf{channel} :CLONE WARNING: '$userip' ($counter{$userip} users)");
+						}
+						elsif ( $conf{locglineaction} =~ /gline/i )
+						{
+							queuemsg(2,"NOTICE \@$conf{channel} :GLINE for '$userip' ($counter{$userip} users)");
+#							queuemsg(2,"GLINE \!\+*\@$userip $conf{ipglinetime} :Auto-Klined for $conf{ipglinetime} seconds.");
+						}
+					}
 				}
 			}
 		}
-
 	}
 
 	if ( ( time - $data{status}{polling} ) >= ( $conf{pollinterval} - 30 ) )
@@ -529,30 +651,48 @@ sub timed_events
 			$data{time}{statsv} = time;
 		}
 
-		if ( $data{status}{lusers} )
+		if ( $data{status}{statsl} )
 		{
-			queuemsg(1,"LUSERS");
-			$data{status}{lusers} = 0;
+			queuemsg(1,"STATS l");
+			$data{status}{statsl} = 0;
+			delete $data{statsl};
 		}
 		else
 		{
-			$data{status}{lusers} = 1;
-			$data{time}{lusers} = time;
+			$data{status}{statsl} = 1;
+			$data{time}{statsl} = time;
 		}
 
-		if ( $data{status}{who} )
+		if ( !$conf{hubmode} )
 		{
-			open(WHO,">$conf{path}/var/users.tmp");
-			close(WHO);
-			queuemsg(1,"WHO $data{servername} x%nuhilraf");
-			$data{status}{who} = 0;
-			delete $data{who};
-			$data{autoid} = 0;
+			if ( $data{status}{lusers} )
+			{
+				queuemsg(1,"LUSERS");
+				$data{status}{lusers} = 0;
+			}
+			else
+			{
+				$data{status}{lusers} = 1;
+				$data{time}{lusers} = time;
+			}
 		}
-		else
+
+		if ( !$conf{hubmode} && $conf{locglineaction} !~ /disable/i )
 		{
-			$data{status}{who} = 1;
-			$data{time}{who} = time;
+			if ( $data{status}{who} )
+			{
+				open(WHO,">$conf{path}/var/users.tmp");
+				close(WHO);
+				queuemsg(1,"WHO $data{servername} x%nuhilraf");
+				$data{status}{who} = 0;
+				delete $data{who};
+				$data{autoid} = 0;
+			}
+			else
+			{
+				$data{status}{who} = 1;
+				$data{time}{who} = time;
+			}
 		}
 	}
 
@@ -570,7 +710,7 @@ sub irc_loop
 		my $user = $3;
 		my $host = $5;
 
-		if ( $line =~ /^JOIN $conf{channel}$/i )
+		if ( $line =~ /^JOIN (:|)$conf{channel}$/i )
 		{
 			# user joined channel
 
@@ -578,12 +718,13 @@ sub irc_loop
 			{
 				# its me!
 				queuemsg(1,"MODE $conf{channel} +o $data{nick}");
-				queuemsg(1,"WHO $conf{channel} xc%nf");
+				queuemsg(1,"WHO $conf{channel} xc%nif");
 				delete $data{oper};
 			}
 			else
 			{
 				queuemsg(2,"WHOIS $nick");
+				queuemsg(2,"USERIP $nick");
 				queuemsg(2,"PRIVMSG $nick :TIME");
 				queuemsg(2,"NOTICE $nick :Please wait while checking your identity...");
 			}
@@ -593,7 +734,7 @@ sub irc_loop
 			# channel mode
 			if ( $line =~ /^\+o $data{nick}$/i )
 			{
-				if ( $data{lusers}{maxusers} ) {
+				if ( $data{lusers}{maxusers} && !$conf{hubmode} ) {
 					queuemsg(1,"MODE $conf{channel} +l $data{lusers}{maxusers}");
 				}
 				queuemsg(1,"MODE $conf{channel} +imnst-pr");
@@ -606,7 +747,7 @@ sub irc_loop
 				}
 				else
 				{
-					if ( $data{lusers}{maxusers} ) {
+					if ( $data{lusers}{maxusers} && !$conf{hubmode} ) {
 						queuemsg(2,"MODE $conf{channel} +l $data{lusers}{maxusers}");
 					}
 					queuemsg(2,"MODE $conf{channel} +imnst-pr");
@@ -639,7 +780,7 @@ sub irc_loop
 				elsif ( $line =~ /reload/i )
 				{
 					queuemsg(3,"$replymode $nick :command: RELOAD <cold|warm>");
-					queuemsg(3,"$replymode $nick :note   : 'warn' reload configuration on the fly.");
+					queuemsg(3,"$replymode $nick :note   : 'warm' reload configuration on the fly.");
 					queuemsg(3,"$replymode $nick :       : 'cold' reload configuration and restart.");
 				}
 				elsif ( $line =~ /raw/i )
@@ -653,7 +794,7 @@ sub irc_loop
 				}
 				elsif ( $line =~ /dcc/i )
 				{
-					queuemsg(3,"$replymode $nick :command: DCC [port]");
+					queuemsg(3,"$replymode $nick :command: DCC <ip> [port]");
 					queuemsg(3,"$replymode $nick :note   : starts a DCC session. the port is optional.");
 				}
 				else
@@ -691,16 +832,34 @@ sub irc_loop
 					queuemsg(3,"$replymode $nick :error: missing or incorrect argument(s), try 'help nick'");
 				}
 			}
-			elsif ( $line =~ /^dcc$/i || $line =~ /^dcc (\d+)$/ )
+			elsif ( $line =~ s/^dcc *//i )
 			{
+
+				my $userip = 0;
 				my $userport = 0;
-				if ( $1 ) {
-					$userport = $1;
+
+				if ( $line =~ /^(\d+\.\d+\.\d+\.\d+|)$/ || $line =~ /^(\d+\.\d+\.\d+\.\d+|) (\d+)$/)
+				{
+					foreach ( @{$conf{dccips}} )
+					{
+						if ( $_ eq $1 )
+						{
+							$userip = $_;
+						}
+					}
+
+					if ( $2 ) {
+						$userport = $2;
+					}
 				}
 
-				if ( $conf{dcclisten} eq 0 )
+				if ( $conf{dccenable} eq 0 )
 				{
 					queuemsg(3,"$replymode $nick :DCC is disabled by configuration.");
+				}
+				elsif ( !$userip )
+				{
+					queuemsg(3,"$replymode $nick :Invalid IP. You must select either of the following IP addresses: @{$conf{dccips}}.");
 				}
 				elsif ( $conf{dccport} && $userport )
 				{
@@ -709,13 +868,13 @@ sub irc_loop
 				else
 				{
 
-					my ($dccsock,$dccport) = init_dcc($userport);
+					my ($dccsock,$dccport) = init_dcc($userip,$userport);
 
 					if ( $dccsock && $dccport )
 					{
 						my $code = gencode();
 						queuemsg(3,"NOTICE \@$conf{channel} :$nick requested DCC, code is $code");
-						my $dccip = unpack("N",inet_aton($conf{dcclisten}));
+						my $dccip = unpack("N",inet_aton($userip));
 						queuemsg(3,"PRIVMSG $nick :DCC CHAT chat $dccip $dccport");
 						dcc($dccsock,$code,$data{offset}{$nick});
 					}
@@ -781,15 +940,15 @@ sub irc_loop
 				# hack_type:timestamp:msg
 				writemsg("hack","$2:$4:$3");
 			}
-			elsif ( $logline =~ /Client connecting: (.*) \((.*)\) \[(\d+\.\d+\.\d+\.\d+)\] \{(\d+)\} \[(.*)\] <(.*)>$/ )
+			elsif ( $logline =~ /Client connecting: (.*) \((.*)\) \[(.*)\] \{(.*)\} \[(.*)\] <(.*)>$/ )
 			{
 				# nick:host:ip:numeric:class:rname/reason
-				writemsg("connexit","CONN:$1:$2:$3:$6:$4:$5");
+				writemsg("connexit","CONN:$1:$2:[$3]:$6:$4:$5");
 			}
-			elsif ( $logline =~ /Client exiting: (.*) \((.*)\) \[(.*)\] \[(\d+\.\d+\.\d+\.\d+)\] <(.*)>$/ )
+			elsif ( $logline =~ /Client exiting: (.*) \((.*)\) \[(.*)\] \[(.*)\] <(.*)>$/ )
 			{
 				# nick:host:ip:numeric:class:rname/reason
-				writemsg("connexit","EXIT:$1:$2:$4:$5::$3");
+				writemsg("connexit","EXIT:$1:$2:[$4]:$5::$3");
 			}
 			elsif ( $logline =~ /\*\*\* Notice -- (.*) adding (local|global) GLINE for (.*), expiring at (\d+): (.*)/i )
 			{
@@ -807,9 +966,9 @@ sub irc_loop
 		}
 		# server stuff
 
-		if ( $line =~ /^376 /  )
+		if ( $line =~ /^(376|422) /  )
 		{
-			# end of MOTD
+			# end of MOTD 376 or MOTD file missing 422
 			queuemsg(1,"OPER $conf{operuser} $conf{operpass}");
 		}
 		elsif ( $line =~ /^002 $data{nick} :Your host is (.*), running version/ )
@@ -821,8 +980,12 @@ sub irc_loop
 		{
 			# OPER done
 			queuemsg(1,"MODE $data{nick} +ids 65535");
-			queuemsg(1,"JOIN $conf{channel} OVERRIDE");
-			queuemsg(1,"JOIN $conf{channel}");
+			queuemsg(1,"JOIN :$conf{channel}");
+		}
+		elsif ( $line =~ /^(471|472|473|474|475) /  )
+		{
+			# Unable to join channel, OVERRIDE it !
+			queuemsg(1,"JOIN $conf{channel} :OVERRIDE");
 		}
 		elsif ( $line =~ /^433 / )
 		{
@@ -834,6 +997,19 @@ sub irc_loop
 		{
 			$data{oper}{$1} = 1;
 			queuemsg(2,"MODE $conf{channel} +o $1");
+		}
+		elsif ( $line =~ /^340 $data{nick} :(.*)=(.*)@((\.|\:|[a-f]|[0-9])+)$/i )
+		{
+				my $nick = $1;
+				$nick =~ tr/\*//d;
+
+				foreach ( @{$conf{ippermit}} )
+				{
+					if ( $3 =~ /^$_$/ )
+					{
+						queuemsg(2,"MODE $conf{channel} +o $nick");
+					}
+				}
 		}
 		elsif ( $line =~ /^251 $data{nick} :There are (\d+) users and (\d+) invisible/i )
 		{
@@ -854,7 +1030,7 @@ sub irc_loop
 		}
 		elsif ( $line =~ s/^354 $data{nick} //i )
 		{
-			if ( $line =~ /^((\~|\w|\[|\])+) (\d+\.\d+\.\d+\.\d+) ((\w|\-|\_|\.)+) ((\\|\||\`|\[|\]|\{|\}|\-|\_|\w|\^)+) ((\w|\@|\+|\-|\*)+) (\d+) (\w+) :(.*)$/i )
+			if ( $line =~ /^((\~|\w|\{|\}|\[|\]|\^|\.|\-|\|)+) (.*) ((\w|\-|\:|\_|\.)+) ((\\|\||\`|\[|\]|\{|\}|\-|\_|\w|\^)+) ((\w|\@|\<|\+|\-|\*)+) (\d+) (\w+) :(.*)$/i )
 			{
 				$data{autoid}++;
 				my $autoid = $data{autoid};
@@ -871,20 +1047,30 @@ sub irc_loop
 				print WHO "$1	$3	$4	$6	$10	$11	$12	$8\n";
 				close(WHO);
 			}
-			elsif ( $line =~ /^((\\|\||\`|\[|\]|\^|\{|\}|\-|\_|\w)+) ((\*|\@|\w)+)$/i )
+			elsif ( $line =~ /^((\d|\.|\:|\w)+) ((\\|\||\`|\[|\]|\^|\{|\}|\-|\_|\w)+) ((\*|\@|\w)+)$/i )
 			{
 				# channel who
-				my $opernick = $1;
-				my $modes = $3;
+				my $ip = $1;
+				my $opernick = $3;
+				my $modes = $5;
+				my $permitted = 0;
+
+				foreach ( @{$conf{ippermit}} )
+				{
+					if ( $ip =~ /^$_$/ )
+					{
+						$permitted = 1;
+					}
+				}
 
 				if ( $modes =~ /\*/ )
 				{
 					# is oper
 					$data{oper}{$opernick} = 1;
 				}
-				else
-				{
-					# is not oper
+				elsif ( !$permitted )
+				{ 
+					# is not oper nor permitted
 					delete $data{oper}{$opernick};
 					queuemsg(2,"KICK $conf{channel} $opernick :You have no right to be in this channel!");
 				}
@@ -895,27 +1081,50 @@ sub irc_loop
 			# end of WHO
 			if ( !$data{rfs} )
 			{ 
-				queuemsg(2,"NOTICE \@$conf{channel} :GenEthic v$conf{version}, ready.");
+				queuemsg(2,"NOTICE \@$conf{channel} :GenEthic-Enhanced v$conf{version}, ready.");
 			}
 			$data{rfs} = 1;
-			$data{status}{who} = 1;
-			copy("$conf{path}/var/users.tmp", "$conf{path}/var/users.txt");
+			if ( !$conf{hubmode} && $conf{locglineaction} !~ /disable/i )
+			{
+				$data{status}{who} = 1;
+				copy("$conf{path}/var/users.tmp", "$conf{path}/var/users.txt");
+			}
 		}
 		elsif ( $line =~ s/^213 $data{nick} C //i )
 		{
-			my (undef, undef, $hub) = split(/ /,$line);
+			my ($hub, undef, undef) = split(/ /,$line);
 			$hub =~ tr/[A-Z]/[a-z]/;
-			if ( !exists $data{hubs}{$hub} )
+			if ( !exists $data{clines}{$hub} )
 			{
-				$data{hubs}{$hub} = "n/a";
+				$data{clines}{$hub} = "n/a";
+			}
+		}
+		elsif ( $line =~ s/^211 $data{nick} ((\w|\d|\.)+) (\d+) //i )
+		{
+			my $server = $1;
+			$server =~ tr/[A-Z]/[a-z]/;
+			my $sendq = $3;
+
+			if ( $server =~ /$conf{networkdomain}/i )
+			{
+				$data{uplinks}{$server} = $sendq;
+
+				if ( $sendq > $conf{sendqwarn} )
+				{
+					my $diff = $sendq - $data{last}{sendq}{$server};
+					if ( $diff =~ /^\d+$/ ) { $diff ="+$diff"; }
+
+					queuemsg(2,"NOTICE \@$conf{channel} :WARNING: Detected high SendQ to $server: $sendq ($diff)");
+					push_notify("SENDQ $server: $sendq ($diff)");
+				}
 			}
 		}
 		elsif ( $line =~ s/^236 $data{nick} //i )
 		{
 			# STATS v
-			# Servername Uplink Flags Hops Numeric/Numeric Lag RTT Up Down Clients/Max Proto LinkTS    
+			# Servername Uplink Flags Hops Numeric/Numeric Lag RTT Up Down Clients/Max Proto LinkTS Info    
 			$line =~ s/( |	)+/ /g;
-			my ( $srcsrv,$dstsrv,$flags,$hops,$numeric1,$numeric2,$lag,$rtt,$up,$down,$clients,$maxclients,$proto,$linkts ) = split(/ /,$line);
+			my ( $srcsrv,$dstsrv,$flags,$hops,$numeric1,$numeric2,$lag,$rtt,$up,$down,$clients,$maxclients,$proto,$linkts,$info ) = split(/ /,$line);
 			$srcsrv =~ tr/[A-Z]/[a-z]/;
 			$dstsrv =~ tr/[A-Z]/[a-z]/;
 
@@ -929,6 +1138,17 @@ sub irc_loop
 				$data{statsv}{$srcsrv}{users}    = $clients;
 				$data{statsv}{$srcsrv}{maxusers} = $maxclients;
 				$data{statsv}{$srcsrv}{linkts}   = $linkts;
+				$data{statsv}{$srcsrv}{hub}      = 0;
+
+				if ( $flags =~ /H/ )
+				{
+					$data{statsv}{$srcsrv}{hub} = 1;
+				}
+			}
+
+			if ( $dstsrv =~ /$data{servername}/i && $srcsrv !~ /$data{servername}/i && !exists $data{uplinks}{$srcsrv} )
+			{
+				$data{uplinks}{$srcsrv} = "n/a";
 			}
 		}
 		elsif ( $line =~ /^219 $data{nick} / )
@@ -938,12 +1158,14 @@ sub irc_loop
 			{
 				$data{time}{statsv} = time;
 				$data{status}{statsv} = 1;
+				$data{time}{statsl} = time;
+				$data{status}{statsl} = 1;
 			}
 			else
 			{
 				$data{time}{statsc} = time;
 				$data{status}{statsc} = 1;
-				foreach( keys %{$data{hubs}} )
+				foreach( keys %{$data{clines}} )
 				{
 					queuemsg(1,"RPING $_");
 				}
@@ -952,8 +1174,19 @@ sub irc_loop
 		elsif ( $line =~ /^RPONG $data{nick} (.*) (\d+) :/ )
 		{
 			my $hub = $1;
+			my $rping = $2;
 			$hub =~ tr/[A-Z]/[a-z]/;
-			$data{hubs}{$hub} = $2;
+			if ( $rping > $conf{rpingwarn} && $rping > $data{clines}{$hub} )
+			{
+				my $diff = $rping - $data{clines}{$hub};
+				if ( $diff =~ /^\d+$/ ) { $diff ="+$diff"; }
+
+				queuemsg(2,"NOTICE \@$conf{channel} :WARNING: Detected high RPING for $hub: $rping ($diff)");
+				push_notify("RPING $hub: $rping ms ($diff)");
+			}
+
+			$data{clines}{$hub} = $2;
+
 		}
 		elsif ( $line =~ s/^NOTICE (.*) :\*\*\* Notice -- //i )
 		{
@@ -1006,22 +1239,69 @@ sub irc_loop
 				}
 
 				queuemsg(2,"NOTICE \@$conf{channel} :$opernick\!$operhost is now $opermode");
-				queuemsg(2,"INVITE $opernick $conf{channel}");
+				if ( !($opernick =~ /^$data{nick}$/i ))
+				{
+					queuemsg(2,"INVITE $opernick $conf{channel}");
+				}
 			}
-			elsif ( $line =~ /^Net junction: (.*)$/ )
+			elsif ( $line =~ /^Net junction: (.*) (.*)$/ )
 			{
-				queuemsg(3,"NOTICE \@$conf{channel} :NETJOIN $1");
+				queuemsg(3,"NOTICE \@$conf{channel} :NETJOIN $1 $2");
+
+				my $notify = 0;
+				my $server1 = $1;
+				my $server2 = $2;
+
+				if ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i )
+				{
+					$notify = 1;
+				}
+
+				foreach ( @{$conf{splitlist}} )
+				{
+					if ( $server1 =~ /$_/i || $server2 =~ /$_/i )
+					{
+						$notify = 1;
+					}
+				}
+
+				if ( $notify )
+				{
+					push_notify("NETJOIN $server1 $server2");
+				}
 			}
-			elsif ( $line =~ /^Net break: (.*)$/ )
+			elsif ( $line =~ /^Net break: (.*) (.*)$/ )
 			{
-				queuemsg(3,"NOTICE \@$conf{channel} :NETQUIT $1");
+				queuemsg(3,"NOTICE \@$conf{channel} :NETQUIT $1 $2");
+
+				my $notify = 0;
+				if ( $1 eq $data{servername} || $2 eq $data{servername} )
+				{
+					$notify = 1;
+				}
+
+				foreach ( @{$conf{splitlist}} )
+				{
+					if ( $1 eq $_ || $2 eq $_ )
+					{
+						$notify = 1;
+					}
+				}
+
+				if ( $notify )
+				{
+					push_notify("NETQUIT $1 $2");
+				}
 			}
 		}
 		elsif ( $line =~ /NOTICE $data{nick} :Highest connection count: \d+ \((\d+) clients\)$/ )
 		{
-			$data{lusers}{maxusers} = $1;
-			$data{status}{lusers} = 1;
-			queuemsg(1,"MODE $conf{channel} +l $data{lusers}{maxusers}");
+			if ( !$conf{hubmode} )
+			{
+				$data{lusers}{maxusers} = $1;
+				$data{status}{lusers} = 1;
+				queuemsg(1,"MODE $conf{channel} +l $data{lusers}{maxusers}");
+			}
 		}
 	}
 	elsif ( $line =~ /^PING :(.*)/ )
@@ -1096,6 +1376,7 @@ sub read_irc
 				push(@{$server{in}},$line);
 				if ( $line =~ /Client (connecting|exiting): / || $line =~ / 354 / ) { #ignore;
 				} else { logdeb("<- $line"); }
+
 			}
 		}
 	}
@@ -1157,6 +1438,10 @@ sub load_config
 					}
 					$newconf{nickpos} = 0;
 				}
+				elsif ( $name eq 'permitip' )
+				{
+					push(@{$newconf{ippermit}},$value);
+				}
 				elsif ( $name eq 'rnameexcept' )
 				{
 					push(@{$newconf{rnamelist}},$value);
@@ -1164,6 +1449,21 @@ sub load_config
 				elsif ( $name eq 'ipexcept' )
 				{
 					push(@{$newconf{iplist}},$value);
+				}
+				elsif ( $name eq 'pushuser' )
+				{
+					push(@{$newconf{usertoken}},$value);
+				}
+				elsif ( $name eq 'pushnetsplit' )
+				{
+					push(@{$newconf{splitlist}},$value);
+				}
+				elsif ( $name eq 'dcclisten' )
+				{
+					if ( $value =~ /^(\d+\.\d+\.\d+\.\d+|)$/ )
+					{
+						push(@{$newconf{dccips}},$value);
+					}
 				}
 				$newconf{$name}=$value;
 			}
@@ -1180,12 +1480,14 @@ sub load_config
 		{ push(@ECONF,"SERVERPORT"); }
 		if ( !( $newconf{vhost} =~ /^(\d+\.\d+\.\d+\.\d+|)$/ ) )
 		{ push(@ECONF,"VHOST"); }
+		if ( !( $newconf{hubmode} =~ /^(0|1)$/i ) )
+		{ push(@ECONF,"HUBMODE"); }
 		if ( !( $newconf{timeout} =~ /^\d+$/ ) )
-		{ push(@ECONF,"DCCLISTEN"); }
-		if ( !( $newconf{dcclisten} =~ /^(\d+\.\d+\.\d+\.\d+)$/ ) )
-		{ push(@ECONF,"DCCPORT"); }
-		if ( !( $newconf{dccport} =~ /^\d+$/ ) )
 		{ push(@ECONF,"TIMEOUT"); }
+		if ( !( $newconf{dccenable} =~ /^\d+$/ ) )
+		{ push(@ECONF,"DCCENABLE"); }
+		if ( !( $newconf{dccport} =~ /^\d+$/ ) )
+		{ push(@ECONF,"DCCPORT"); }
 		if ( !( $newconf{nick} =~ /^(,|\w)+$/i ) )
 		{ push(@ECONF,"NICK"); }
 		if ( !( $newconf{ident} =~ /^\w+$/i ) )
@@ -1220,9 +1522,11 @@ sub load_config
 			}
 		} else { push(@ECONF,"OPERFAILMAX"); }
 
-		if ( !( $newconf{pollinterval} =~ /^\d+$/ ) )
-		{ push(@ECONF,"POLLINTERVAL"); }
+		if ( !( $newconf{reportenable} =~ /^(0|1)$/i ) )
+		{ push(@ECONF,"REPORTENABLE"); }
 
+		if ( !( $newconf{locglineaction} =~ /^(GLINE|WARN|DISABLE)$/i ) )
+		{ push(@ECONF,"LOCGLINEACTION"); }
 		if ( !( $newconf{rnameglinetime} =~ /^\d+$/ ) )
 		{
 			push(@ECONF,"RNAMEGLINETIME");
@@ -1251,6 +1555,18 @@ sub load_config
 
 		if ( !( $newconf{rname} =~ /^.+$/ ) )
 		{ push(@ECONF,"RNAME"); }
+
+		if ( !( $newconf{pushenable} =~ /^(0|1)$/i ) )
+		{ push(@ECONF,"PUSHENABLE"); }
+
+		if ( !( $newconf{pushtoken} =~ /^.+$/ ) )
+		{ push(@ECONF,"PUSHTOKEN"); }
+
+		if ( !( $newconf{rpingwarn} =~ /^.+$/ ) )
+		{ push(@ECONF,"RPINGWARN"); }
+
+		if ( !( $newconf{sendqwarn} =~ /^.+$/ ) )
+		{ push(@ECONF,"SENDQWARN"); }
 
 		if ( $newconf{version} ne $version )
 		{ push(@ECONF,"VERSION MISMATCH!"); }
@@ -1418,19 +1734,25 @@ sub guess_tz
 		my $offset = "$1$2";
 		return $offset * 3600;
 	}
-	elsif ( $usertime =~ /(\w{3}) (\w{3}) (\d{1,2}) (\d\d):(\d\d):(\d\d) (\d{4})$/ )
+	elsif ( $usertime =~ /(\+|\-)(\d{4})/ )
 	{
-		my $mon = $2;
-		my $day = $3;
-		my $hour = $4;
-		my $min  = $5;
-		my $sec  = $6;
-		my $year = $7;
+		my $offset = "$1$2";
+		return $offset * 36;
+	}
+	# Fri, 26 Apr 2024 13:44:04 +0100
+	elsif ( $usertime =~ /(\w{3}), (\d{1,2}) (\w{3}) (\d{4}) (\d+):(\d+):(\d+)$/ )
+	{
+		my $day = $2;
+		my $mon = $3;
+		my $year = $4;
+		my $hour = $5;
+		my $min  = $6;
+		my $sec  = $7;
 
 		$mon =~ s/jan/1/i;
 		$mon =~ s/feb/2/i;
 		$mon =~ s/mar/3/i;
-		$mon =~ s/arp/4/i;
+		$mon =~ s/apr/4/i;
 		$mon =~ s/may/5/i;
 		$mon =~ s/jun/6/i;
 		$mon =~ s/jul/7/i;
@@ -1443,6 +1765,62 @@ sub guess_tz
 
 		return timegm($sec,$min,$hour,$day,$mon,$year) - time;
 	}
+	# Fri Apr 26 13:56:48 2024
+	elsif ( $usertime =~ /(\w{3}) (\w{3}) (\d{1,2}) (\d+):(\d+):(\d+) (\d{4})$/ )
+	{
+		my $mon = $2;
+		my $day = $3;
+		my $hour = $4;
+		my $min  = $5;
+		my $sec  = $6;
+		my $year = $7;
+
+		$mon =~ s/jan/1/i;
+		$mon =~ s/feb/2/i;
+		$mon =~ s/mar/3/i;
+		$mon =~ s/apr/4/i;
+		$mon =~ s/may/5/i;
+		$mon =~ s/jun/6/i;
+		$mon =~ s/jul/7/i;
+		$mon =~ s/aug/8/i;
+		$mon =~ s/sep/9/i;
+		$mon =~ s/oct/10/i;
+		$mon =~ s/nov/11/i;
+		$mon =~ s/dec/12/i;
+		$mon--;
+
+		return timegm($sec,$min,$hour,$day,$mon,$year) - time;
+	}
+	# Fri 26th Apr 2024 03:07p
+	elsif ( $usertime =~ /(\w{3}) (\d{1,2})(\w{2}) (\w{3}) (\d{4}) (\d+):(\d+)(\w{1})$/ )
+	{
+		my $day = $2;
+		my $mon = $4;
+		my $year = $5;
+		my $hour = $6;
+		my $min  = $7;
+
+		$mon =~ s/jan/1/i;
+		$mon =~ s/feb/2/i;
+		$mon =~ s/mar/3/i;
+		$mon =~ s/apr/4/i;
+		$mon =~ s/may/5/i;
+		$mon =~ s/jun/6/i;
+		$mon =~ s/jul/7/i;
+		$mon =~ s/aug/8/i;
+		$mon =~ s/sep/9/i;
+		$mon =~ s/oct/10/i;
+		$mon =~ s/nov/11/i;
+		$mon =~ s/dec/12/i;
+		$mon--;
+
+		if ( $8 eq "p")
+		{
+			$hour = $hour + 12;
+		}
+
+		return timegm(0,$min,$hour,$day,$mon,$year) - time;
+	}
 	else
 	{
 		return 0;
@@ -1451,7 +1829,7 @@ sub guess_tz
 
 sub init_dcc
 {
-	my $userport = shift;
+	my ($userip,$userport) = @_;
 	my $dccport  = 0;
 	if ( $conf{dccport} )
 	{
@@ -1466,11 +1844,13 @@ sub init_dcc
 
 	if ( $dccport )
 	{
-		$dccsock = IO::Socket::INET->new (
+#		$dccsock = IO::Socket::INET->new (
+		$dccsock = new IO::Socket::INET (
 			Proto		=> 'tcp',
 			LocalPort	=> $dccport,
-			LocalAddr	=> $conf{dcclisten},
-			Timeout		=> 10,
+			LocalHost	=> $userip,
+#			LocalAddr	=> $userip,
+			Timeout		=> 30,
 			Listen		=> 1,
 			Reuse		=> 1 );
 	}
@@ -1478,11 +1858,13 @@ sub init_dcc
 	{
 		$dccsock = IO::Socket::INET->new (
 			Proto		=> 'tcp',
-			LocalAddr	=> $conf{dcclisten},
+			LocalAddr	=> $userip,
 			Timeout		=> 10,
 			Listen		=> 1,
 			Reuse		=> 1 );
 	}
+
+#	$SIG{INT} = sub { $dccsock->close(); exit 0; }
 
 	if ( $dccsock && !$@ )
 	{
@@ -1532,7 +1914,7 @@ sub dcc
 					if (vec($xdata, fileno($client), 1))
 					{
 						$line = <$client>;
-						chop $line;
+						$line =~ s/(\r|\n)+$//;
 						if ( $line =~ /./ ) { # got something...
 						}
 						else
@@ -1551,6 +1933,7 @@ sub dcc
 					$line =~ s/  / /g;
 					$line =~ s/^ //;
 					$line =~ s/ $//;
+
 					if ( !$auth )
 					{
 						if ( $line eq $code )
@@ -1712,105 +2095,112 @@ sub dcc
 					}
 					elsif ( $line =~ /^clones$/i )
 					{
-						my $all = 0;
-
-						my $whots = unix2date((stat("$conf{path}/var/users.txt"))[9],$offset);
-						print $client "User base last updated at $whots\n";
-						print $client "Loading user base ...\n";
-
-						my %a;
-						my %c;
-
-						$c{user}  = "numbers are replaced by '?'";
-						$c{ip}    = "ip addresses are summarized by C classes";
-						$c{host}  = "hostnames are summarized by domain.tld";
-						$c{nick}  = "nicknames are summarized by their 4 first chars and numbers are replaced by '?'";
-						$c{idle}  = "idle times are splitted into 4 ranges. 0-1h,1h-1d,1d-1w,1w+";
-						$c{rname} = "color/control codes are replaced by ^C/^B/^U/^R";
-
-
-						open(FILE,"$conf{path}/var/users.txt");
-						while(<FILE>)
+						if ( $conf{hubmode} || $conf{locglineaction} =~ /disable/i )
 						{
-							chop;
-							my %u;
-							($u{user},$u{ip},$u{host},$u{nick},$u{idle},$u{xuser},$u{rname})=split(/	/);
-
-							$u{user} =~ s/\d/?/g;
-							$u{ip}   =~ s/\.\d+$/\.\*/;
-
-							if ( $u{host} =~ /\.\d+$/ )
-							{
-								$u{host} = 'no hostname';
-							}
-							else
-							{
-								$u{host} =~ s/.*\.((\w|\_|\-)+)\.(\w+)$/\*.$1.$3/;
-							}
-
-							$u{nick} =~ s/\d/\?/g;
-							$u{nick} =~ s/^(....).*/$1\*/;
-
-							if ( $u{idle} > 604800 )
-							{ $u{idle} = '> 1w'; }
-							elsif ( $u{idle} > 86400 )
-							{ $u{idle} = '1d - 1w'; }
-							elsif ( $u{idle} > 3600 )
-							{ $u{idle} = '1h - 1d'; }
-							else
-							{ $u{idle} = '< 1h'; }
-
-							if ( $u{xuser} ) { $u{xuser} = 1; }
-
-							$u{rname} =~ s//^C/g;
-							$u{rname} =~ s//^U/g;
-							$u{rname} =~ s//^B/g;
-							$u{rname} =~ s//^R/g;
-
-							foreach(split(/ /,"user ip host nick idle xuser rname"))
-							{
-								push(@{$a{$_}},$u{$_});
-							}
-							$all++;
-
+							print $client "This function is disabled in hub mode or when locglineaction is disabled\n";
 						}
-						close(FILE);
-
-						print $client "Sorting results ...\n";
-
-						my $xuser = 0;
-						foreach(@{$a{xuser}}) { if ( $_ ) { $xuser++; } }
-						print $client "found $xuser users of $all logged into X\n";
-
-						my $type;
-						foreach $type (split(/ /,"user host ip nick idle rname"))
+						else
 						{
-							print $client "Results for '$type' ($c{$type})\n";
+							my $all = 0;
 
-							my %u;
-							foreach ( @{$a{$type}} )
-							{
-								$u{$_}++;
-							}
+							my $whots = unix2date((stat("$conf{path}/var/users.txt"))[9],$offset);
+							print $client "User base last updated at $whots\n";
+							print $client "Loading user base ...\n";
 
-							my @TEMP;
-							foreach ( keys %u )
+							my %a;
+							my %c;
+
+							$c{user}  = "numbers are replaced by '?'";
+							$c{ip}    = "ip addresses are summarized by C classes";
+							$c{host}  = "hostnames are summarized by domain.tld";
+							$c{nick}  = "nicknames are summarized by their 4 first chars and numbers are replaced by '?'";
+							$c{idle}  = "idle times are splitted into 4 ranges. 0-1h,1h-1d,1d-1w,1w+";
+							$c{rname} = "color/control codes are replaced by ^C/^B/^U/^R";
+
+
+							open(FILE,"$conf{path}/var/users.txt");
+							while(<FILE>)
 							{
-								push(@TEMP,sprintf("%05d	%s",$u{$_},$_));
-							}
-							my $limit = 10;
-							foreach ( reverse sort @TEMP )
-							{
-								if ( $limit > 0 )
+								chop;
+								my %u;
+								($u{user},$u{ip},$u{host},$u{nick},$u{idle},$u{xuser},$u{rname})=split(/	/);
+
+								$u{user} =~ s/\d/?/g;
+								$u{ip}   =~ s/\.\d+$/\.\*/;
+
+								if ( $u{host} =~ /\.\d+$/ )
 								{
-									my ($no,$msg)=split(/	/,$_);
-									$no+=0;
-									print $client sprintf("%5s -> %s\n",$no,$msg);
+									$u{host} = 'no hostname';
 								}
-								$limit--;
+								else
+								{
+									$u{host} =~ s/.*\.((\w|\_|\-)+)\.(\w+)$/\*.$1.$3/;
+								}
+
+								$u{nick} =~ s/\d/\?/g;
+								$u{nick} =~ s/^(....).*/$1\*/;
+
+								if ( $u{idle} > 604800 )
+								{ $u{idle} = '> 1w'; }
+								elsif ( $u{idle} > 86400 )
+								{ $u{idle} = '1d - 1w'; }
+								elsif ( $u{idle} > 3600 )
+								{ $u{idle} = '1h - 1d'; }
+								else
+								{ $u{idle} = '< 1h'; }
+
+								if ( $u{xuser} ) { $u{xuser} = 1; }
+
+								$u{rname} =~ s//^C/g;
+								$u{rname} =~ s//^U/g;
+								$u{rname} =~ s//^B/g;
+								$u{rname} =~ s//^R/g;
+
+								foreach(split(/ /,"user ip host nick idle xuser rname"))
+								{
+									push(@{$a{$_}},$u{$_});
+								}
+								$all++;
+
 							}
+							close(FILE);
+
+							print $client "Sorting results ...\n";
+
+							my $xuser = 0;
+							foreach(@{$a{xuser}}) { if ( $_ ) { $xuser++; } }
+							print $client "found $xuser users of $all logged into X\n";
+
+							my $type;
+							foreach $type (split(/ /,"user host ip nick idle rname"))
+							{
+								print $client "Results for '$type' ($c{$type})\n";
+
+								my %u;
+								foreach ( @{$a{$type}} )
+								{
+									$u{$_}++;
+								}
+
+								my @TEMP;
+								foreach ( keys %u )
+								{
+									push(@TEMP,sprintf("%05d	%s",$u{$_},$_));
+								}
+								my $limit = 10;
+								foreach ( reverse sort @TEMP )
+								{
+									if ( $limit > 0 )
+									{
+										my ($no,$msg)=split(/	/,$_);
+										$no+=0;
+										print $client sprintf("%5s -> %s\n",$no,$msg);
+									}
+									$limit--;
+								}
+							}
+							print $client "done.\n";
 						}
-						print $client "done.\n";
 					}
 					elsif ( $line =~ /^map$/ )
 					{
@@ -1839,34 +2229,41 @@ sub dcc
 					}
 					elsif ( $line =~ /^scan (nick|user|host|ip|rname|idle|xuser|mode) (.*)$/i )
 					{
-						my $field = $1;
-						my $match = wild2reg($2);
-
-						$field =~ tr/[A-Z]/[a-z]/;
-
-						my $whots = unix2date((stat("$conf{path}/var/users.txt"))[9],$offset);
-						print $client "User base last updated at $whots\n";
-
-						my $count = 0;
-						my $all   = 0;
-
-						open(FILE,"$conf{path}/var/users.txt");
-						while(<FILE>)
+						if ( $conf{hubmode} || $conf{locglineaction} =~ /disable/i )
 						{
-							chop;
-							my %u;
-							($u{user},$u{ip},$u{host},$u{nick},$u{idle},$u{xuser},$u{rname},$u{mode})=split(/	/);
-							$all++;
-
-							if ( $u{$field} =~ /^$match$/i )
-							{
-								$count++;
-								my $idle = easytime($u{idle});
-								print $client "$u{nick}\!$u{user}\@$u{host} [$u{ip}] mode:$u{mode} idle:$idle Xuser:$u{xuser} ($u{rname})\n";
-							}
+							print $client "This function is disabled in hub mode or when locglineaction is disabled.\n";
 						}
-						close(FILE);
-						print $client "Found $count users of $all users.\n";
+						else
+						{
+							my $field = $1;
+							my $match = wild2reg($2);
+
+							$field =~ tr/[A-Z]/[a-z]/;
+
+							my $whots = unix2date((stat("$conf{path}/var/users.txt"))[9],$offset);
+							print $client "User base last updated at $whots\n";
+
+							my $count = 0;
+							my $all   = 0;
+
+							open(FILE,"$conf{path}/var/users.txt");
+							while(<FILE>)
+							{
+								chop;
+								my %u;
+								($u{user},$u{ip},$u{host},$u{nick},$u{idle},$u{xuser},$u{rname},$u{mode})=split(/	/);
+								$all++;
+
+								if ( $u{$field} =~ /^$match$/i )
+								{
+									$count++;
+									my $idle = easytime($u{idle});
+									print $client "$u{nick}\!$u{user}\@$u{host} [$u{ip}] mode:$u{mode} idle:$idle Xuser:$u{xuser} ($u{rname})\n";
+								}
+							}
+							close(FILE);
+							print $client "Found $count users of $all users.\n";
+						}
 					}
 					elsif ( $line =~ /^conn (\d+)$/i )
 					{
@@ -1888,7 +2285,7 @@ sub dcc
 						for ( my $id = $start; $id <= $count; $id++ )
 						{
 							my $msg = $CONN[$id];
-							if ( $msg =~ /^(\d+) (CONN|EXIT):(.*):(.*):(\d+.\d+.\d+.\d+):.....:(\d*):(.*)$/ )
+							if ( $msg =~ /^(\d+) (CONN|EXIT):(.*):(.*):\[(.*)\]:.....:(\w*):(.*)$/ )
 							{
 								my $ts       = $1;
 								my $type     = $2;
@@ -1898,7 +2295,7 @@ sub dcc
 								my $class    = $6;
 								my $txt      = $7;
 
-								print $client sprintf("[%s] %s %s\!%s [%s] class:%s (%s)\n",unix2date($ts,$offset),$type,$nick,$userhost,$ip,$class,$txt);
+								print $client sprintf("[%s] %s %s\!%s %s class:%s (%s)\n",unix2date($ts,$offset),$type,$nick,$userhost,$ip,$class,$txt);
 
 							}
 						}
