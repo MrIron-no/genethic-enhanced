@@ -381,9 +381,9 @@ sub timed_events
 				my $hub = $_;
 				$hub =~ s/\.$conf{networkdomain}//;
 
-				if ( exists $data{last}{clines}{$_} )
+				if ( exists $data{last}{rping}{$_} )
 				{
-					$rpdiff = $data{clines}{$_} - $data{last}{clines}{$_};
+					$rpdiff = $data{clines}{$_} - $data{last}{rping}{$_};
 					if ( $rpdiff =~ /^\d+$/ ) { $rpdiff ="+$rpdiff"; }
 					$rpingmsg .= "$hub:$data{clines}{$_}($rpdiff) ";
 				}
@@ -395,7 +395,7 @@ sub timed_events
 				if ( $data{clines}{$_} =~ /^\d+$/ )
 				{
 					print MRTG "RPING_$_:$data{clines}{$_}\n";
-					$data{last}{clines}{$_} = $data{clines}{$_};
+					$data{last}{rping}{$_} = $data{clines}{$_};
 				}
 			}
 		}
