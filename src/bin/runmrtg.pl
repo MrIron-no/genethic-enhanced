@@ -1,4 +1,4 @@
-#!/usr/local/bin/perl
+#!/usr/bin/env perl
 
 my $xsize = 400;
 my $ysize = 100;

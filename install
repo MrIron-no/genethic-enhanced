@@ -1,4 +1,4 @@
-#!/usr/local/bin/perl
+#!/usr/bin/env perl
 
 use strict;
 
@@ -65,13 +65,13 @@ if ( !$status ) { print "Installation aborted.\n"; exit 1; }
 
 print "testing required perl modules:\n";
 my $module;
-foreach $module (split(/ /,"strict File::Basename IO::Socket POSIX Time::Local Time::HiRes File::Copy LWP::UserAgent"))
+foreach $module (split(/ /,"strict File::Basename IO::Socket POSIX Time::Local Time::HiRes File::Copy LWP::UserAgent TEST"))
 {
 	printf("    %-15s    ",$module);
-	if ( `/usr/local/bin/perl -M$module -e 'print "1";' 2>&1` ne '1' )
+	if ( `/usr/bin/env perl -M$module -e 'print "1";' 2>&1` ne '1' )
 	{
 		$status = 0;
-		print "error: perl module $module not installed. try '/usr/local/bin/perl -MCPAN -i install $module'\n";
+		print "error: perl module $module not installed. try 'perl -MCPAN -i install $module'\n";
 	}
 	else
 	{

@@ -1,4 +1,4 @@
-#!/usr/local/bin/perl
+#!/usr/bin/env perl
 #
 #    =====================================================================
 #    |                   SPALEWARE LICENSE (Revision 0.1)                |
@@ -1275,14 +1275,14 @@ sub irc_loop
 				queuemsg(3,"NOTICE \@$conf{channel} :NETQUIT $1 $2");
 
 				my $notify = 0;
-				if ( $1 eq $data{servername} || $2 eq $data{servername} )
+				if ( $1 =~ /$data{servername}/i || $2 =~ /$data{servername}/i )
 				{
 					$notify = 1;
 				}
 
 				foreach ( @{$conf{splitlist}} )
 				{
-					if ( $1 eq $_ || $2 eq $_ )
+					if ( $1 =~ /$_/i || $2 =~ /$_/i )
 					{
 						$notify = 1;
 					}
@@ -1694,7 +1694,7 @@ sub daemonize
 		if ( $pid )
 		{
 			# I'm daddy
-			print "GenEthic v$conf{version} started.\n";
+			print "GenEthic-Enhanced v$conf{version} started.\n";
 			exit;
 		}
 		else
