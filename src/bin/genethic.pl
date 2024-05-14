@@ -13,7 +13,7 @@
 # You might want to enable debug, which
 # will send you the IRC traffic to STDOUT
 #
-my $debug = 1;
+my $debug = 0;
 #
 ######################################################
 #                                                    #
@@ -741,11 +741,9 @@ sub irc_loop
 					queuemsg(1,"MODE $conf{channel} +l $data{lusers}{maxusers}");
 				}
 
-				queuemsg(1,"MODE $conf{channel} +mnst-pr");
-
-				if ( $conf{channel} =~ /^\&/ )
+				if ( $conf{chanmode} )
 				{
-					queuemsg(1,"MODE $conf{channel} +i");
+					queuemsg(1,"MODE $conf{channel} $conf{chanmode}");
 				}
 			}
 			elsif ( $line =~ /^(\-|\+|\w)+( \d+)*$/ )
@@ -1520,6 +1518,8 @@ sub load_config
 		{ push(@ECONF,"CHANNEL"); }
 		if ( !( $newconf{chankey} =~ /^(\w+|)$/i ) )
 		{ push(@ECONF,"CHANKEY"); }
+		if ( !( $newconf{chanmode} =~ /^((\+\w+)|)$/i ) )
+		{ push(@ECONF,"CHANMODE"); }
 		if ( !( $newconf{networkdomain} =~ /^(\w|\.|\-|\_)+$/i ) )
 		{ push(@ECONF,"NETWORKDOMAIN"); }
 
