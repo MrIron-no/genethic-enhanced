@@ -13,7 +13,7 @@
 # You might want to enable debug, which
 # will send you the IRC traffic to STDOUT
 #
-my $debug = 0;
+my $debug = 1;
 #
 ######################################################
 #                                                    #
@@ -717,7 +717,10 @@ sub irc_loop
 			if ( $nick =~ /^$data{nick}$/i )
 			{
 				# its me!
-				queuemsg(1,"MODE $conf{channel} +o $data{nick}");
+				if ( $conf{channel} =~ /^\&/ )
+				{
+					queuemsg(1,"MODE $conf{channel} +o $data{nick}");
+				}
 				queuemsg(1,"WHO $conf{channel} xc%nif");
 				delete $data{oper};
 			}
@@ -737,7 +740,13 @@ sub irc_loop
 				if ( $data{lusers}{maxusers} && !$conf{hubmode} ) {
 					queuemsg(1,"MODE $conf{channel} +l $data{lusers}{maxusers}");
 				}
-				queuemsg(1,"MODE $conf{channel} +imnst-pr");
+
+				queuemsg(1,"MODE $conf{channel} +mnst-pr");
+
+				if ( $conf{channel} =~ /^\&/ )
+				{
+					queuemsg(1,"MODE $conf{channel} +i");
+				}
 			}
 			elsif ( $line =~ /^(\-|\+|\w)+( \d+)*$/ )
 			{
@@ -980,12 +989,23 @@ sub irc_loop
 		{
 			# OPER done
 			queuemsg(1,"MODE $data{nick} +ids 65535");
-			queuemsg(1,"JOIN :$conf{channel}");
+			if ( $conf{chankey} )
+			{
+				queuemsg(1,"JOIN $conf{channel} $conf{chankey}");
+			}
+			else
+			{
+				queuemsg(1,"JOIN :$conf{channel}");
+			}
 		}
 		elsif ( $line =~ /^(471|472|473|474|475) /  )
 		{
 			# Unable to join channel, OVERRIDE it !
-			queuemsg(1,"JOIN $conf{channel} :OVERRIDE");
+			if ( $conf{channel} =~ /^\&/ )
+			{
+				queuemsg(1,"JOIN $conf{channel} :OVERRIDE");
+			}
+
 		}
 		elsif ( $line =~ /^433 / )
 		{
@@ -1496,8 +1516,10 @@ sub load_config
 		{ push(@ECONF,"OPERUSER"); }
 		if ( !( $newconf{operpass} =~ /^.+$/ ) )
 		{ push(@ECONF,"OPERPASS"); }
-		if ( !( $newconf{channel} =~ /^\&\w+$/i ) )
+		if ( !( $newconf{channel} =~ /^(\&|\#)\w+$/i ) )
 		{ push(@ECONF,"CHANNEL"); }
+		if ( !( $newconf{chankey} =~ /^(\w+|)$/i ) )
+		{ push(@ECONF,"CHANKEY"); }
 		if ( !( $newconf{networkdomain} =~ /^(\w|\.|\-|\_)+$/i ) )
 		{ push(@ECONF,"NETWORKDOMAIN"); }
 
