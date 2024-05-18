@@ -65,6 +65,14 @@ if ( !$debug )
 
 $server{lastcon} = time - 61;
 
+# Setting timers
+$data{time}{statsc} = time - ( ( ( $conf{pollinterval} - 30 ) / 6 ) * 6 );
+$data{time}{statsv} = time - ( ( ( $conf{pollinterval} - 30 ) / 6 ) * 5 );
+$data{time}{statsl} = time - ( ( ( $conf{pollinterval} - 30 ) / 6 ) * 4 );
+$data{time}{lusers} = time - ( ( ( $conf{pollinterval} - 30 ) / 6 ) * 3 );
+$data{time}{who} = time - ( ( ( $conf{pollinterval} - 30 ) / 6 ) * 2 );
+$data{time}{rping} = time - ( ( ( $conf{pollinterval} - 30 ) / 6 ) * 1 );
+
 while(1)
 {
 	if ( !$server{socket} )
@@ -225,7 +233,7 @@ sub timed_events
 		{
 			if ( $userchange =~ /^\d+$/ ) { $userchange = "+$userchange"; }
 	
-			queuemsg(2,"NOTICE \@$conf{channel} :WARNING Possible attack, $userchange (+$usermore/-$userless) users in $conf{cetimethres} seconds ($data{lusers}{locusers} users)");
+			queuemsg(2,"NOTICE \@$conf{channel} :" . chr(2) . "WARNING" . chr(2) . ": Possible attack, $userchange (+$usermore/-$userless) users in $conf{cetimethres} seconds ($data{lusers}{locusers} users)");
 			push_notify("USER CHANGE: +$usermore/-$userless");
 			$data{notice}{lastprint} = time;
 		}
@@ -245,7 +253,7 @@ sub timed_events
 
 		open(MRTG,">$conf{path}/var/genethic.log");
 
-		my $trafmsg = 'TRAFFIC->';
+		my $trafmsg = 'TRAFFIC-> ';
 		if ( $conf{trafficreport} )
 		{
 			%{$data{cpu}{new}} = cpu();
@@ -300,7 +308,7 @@ sub timed_events
 				{
 					$rate{ib} = int ( $rate{ib} * 8 / 1024 );
 					$rate{ob} = int ( $rate{ob} * 8 / 1024 );
-					$trafmsg .= " $ifname $rate{ib}/$rate{ob} kbps $rate{ip}/$rate{op} pps";
+					$trafmsg .= chr(2) . $ifname . chr(2) . " $rate{ib}/$rate{ob} kbps $rate{ip}/$rate{op} pps ";
 				}
 			}
 		}
@@ -373,7 +381,7 @@ sub timed_events
 
 		foreach( keys %{$data{clines}} )
 		{
-			# We only want rping for unlinked C:lines. If SendQ exists, its linked.
+			# We only want rping for C:lines not linked to us. If SendQ exists, its linked.
 			# In HUBMODE, we only include other hubs.
 			if ( !exists $data{uplinks}{$_} && ( ( $conf{hubmode} && $data{statsv}{$_}{hub} ) || !$conf{hubmode} ) )
 			{
@@ -381,16 +389,17 @@ sub timed_events
 				my $hub = $_;
 				$hub =~ s/\.$conf{networkdomain}//;
 
+				$rpingmsg .= chr(2) . $hub . chr(2) . ":$data{clines}{$_}";
 				if ( exists $data{last}{rping}{$_} )
 				{
 					$rpdiff = $data{clines}{$_} - $data{last}{rping}{$_};
-					if ( $rpdiff =~ /^\d+$/ ) { $rpdiff ="+$rpdiff"; }
-					$rpingmsg .= "$hub:$data{clines}{$_}($rpdiff) ";
+					if ( $rpdiff != 0 )
+					{
+						if ( $rpdiff =~ /^\d+$/ ) { $rpdiff ="+$rpdiff"; }
+						$rpingmsg .= "($rpdiff)";
+					}
 				}
-				else
-				{
-					$rpingmsg .= "$hub:$data{clines}{$_} ";
-				}
+				$rpingmsg .= " ";
 
 				if ( $data{clines}{$_} =~ /^\d+$/ )
 				{
@@ -413,21 +422,21 @@ sub timed_events
 			my $uplink = $_;
 			$uplink =~ s/\.$conf{networkdomain}//;
 
-			$linkmsg .= "$uplink\[";
+			$linkmsg .= chr(2) . $uplink . chr(2) ."\[";
 
 			if ( exists $data{clines}{$_} )
 			{
 				my $rpdiff = 0;
 
+				$linkmsg .= "rp:$data{clines}{$_}";
 				if ( exists $data{last}{rping}{$_} )
 				{
 					$rpdiff = $data{clines}{$_} - $data{last}{rping}{$_};
-					if ( $rpdiff =~ /^\d+$/ ) { $rpdiff ="+$rpdiff"; }
-					$linkmsg .= "rp:$data{clines}{$_}($rpdiff)";
-				}
-				else
-				{
-					$linkmsg .= "rp:$data{clines}{$_}";
+					if ( $rpdiff != 0 )
+					{
+						if ( $rpdiff =~ /^\d+$/ ) { $rpdiff ="+$rpdiff"; }
+						$linkmsg .= "($rpdiff)";
+					}
 				}
 
 				$data{last}{rping}{$_} = $data{clines}{$_};
@@ -437,15 +446,15 @@ sub timed_events
 
 			my $sqdiff = 0;
 
+			$linkmsg .= " sq:$data{uplinks}{$_}";
 			if ( exists $data{last}{sendq}{$_} )
 			{
 				$sqdiff = $data{uplinks}{$_} - $data{last}{sendq}{$_};
-				if ( $sqdiff =~ /^\d+$/ ) { $sqdiff ="+$sqdiff"; }
-				$linkmsg .= " sq:$data{uplinks}{$_}($sqdiff)";
-			}
-			else
-			{
-				$linkmsg .= " sq:$data{uplinks}{$_}";
+				if ( $sqdiff != 0 )
+				{
+					if ( $sqdiff =~ /^\d+$/ ) { $sqdiff ="+$sqdiff"; }
+					$linkmsg .= "($sqdiff)";
+				}
 			}
 
 			if ( $data{uplinks}{$_} =~ /^\d+$/ )
@@ -455,11 +464,12 @@ sub timed_events
 			}
 
 			my $uptime = easytime(time-$data{statsv}{$_}{linkts});
-			$linkmsg .= " up:$uptime] ";
+			$linkmsg .= " up:$uptime] -- ";
 		}
 
 		if ( $linkmsg && $conf{reportenable} )
 		{
+			$linkmsg = substr $linkmsg, 0, -4;
 			queuemsg(2,"NOTICE \@$conf{channel} :UPLINK -> $linkmsg");
 		}
 
@@ -563,11 +573,11 @@ sub timed_events
 						{
 							if ( $conf{locglineaction} =~ /warn/i )
 							{
-								queuemsg(2,"NOTICE \@$conf{channel} :CLONE WARNING:: '$rname' -> '$rnamewild' ($newmatch users)");
+								queuemsg(2,"NOTICE \@$conf{channel} :" . chr(2) . "CLONE WARNING" . chr(2) . ": '$rname' -> '$rnamewild' ($newmatch users)");
 							}
 							elsif ( $conf{locglineaction} =~ /gline/i )
 							{
-								queuemsg(2,"NOTICE \@$conf{channel} :GLINE for '$rname' -> '$rnamewild' ($newmatch users)");
+								queuemsg(2,"NOTICE \@$conf{channel} :" . chr(2) . "GLINE" . chr(2) . " for '$rname' -> '$rnamewild' ($newmatch users)");
 								queuemsg(2,"GLINE +\$R$rnamewild $conf{rnameglinetime} :Auto-Klined for $conf{rnameglinetime} seconds.");
 							}
 						}
@@ -575,7 +585,7 @@ sub timed_events
 						{
 							if ( $conf{locglineaction} =~ /gline/i )
 							{
-								queuemsg(2,"NOTICE \@$conf{channel} :GLINE WARNING will not set gline for '$rname' (gline on '$rnamewild') should affect $counter{$rname} users, but will affect $newmatch users. Please take a manual action!");
+								queuemsg(2,"NOTICE \@$conf{channel} :" . chr(2) . "GLINE WARNING" . chr(2) . ": will not set gline for '$rname' (gline on '$rnamewild') should affect $counter{$rname} users, but will affect $newmatch users. Please take a manual action!");
 							}
 						}
 					}
@@ -609,11 +619,11 @@ sub timed_events
 					{
 						if ( $conf{locglineaction} =~ /warn/i )
 						{
-							queuemsg(2,"NOTICE \@$conf{channel} :CLONE WARNING: '$userip' ($counter{$userip} users)");
+							queuemsg(2,"NOTICE \@$conf{channel} :" . chr(2) . "CLONE WARNING" . chr(2) . ": '$userip' ($counter{$userip} users)");
 						}
 						elsif ( $conf{locglineaction} =~ /gline/i )
 						{
-							queuemsg(2,"NOTICE \@$conf{channel} :GLINE for '$userip' ($counter{$userip} users)");
+							queuemsg(2,"NOTICE \@$conf{channel} :" . chr(2) . "GLINE" . chr(2) . " for '$userip' ($counter{$userip} users)");
 							queuemsg(2,"GLINE \!\+*\@$userip $conf{ipglinetime} :Auto-Klined for $conf{ipglinetime} seconds.");
 						}
 					}
@@ -622,12 +632,10 @@ sub timed_events
 		}
 	}
 
-	if ( ( time - $data{status}{polling} ) >= ( $conf{pollinterval} - 30 ) )
+	# its poll time
+
+	if ( ( time - $data{time}{statsc} ) >= ( $conf{pollinterval} - 30 ) )
 	{
-		# its poll time
-
-		$data{status}{polling} = time;
-
 		if ( $data{status}{statsc} )
 		{
 			queuemsg(1,"STATS c");
@@ -638,7 +646,10 @@ sub timed_events
 			$data{status}{statsc} = 1;
 			$data{time}{statsc} = time;
 		}
+	}
 
+	if ( ( time - $data{time}{statsv} ) >= ( $conf{pollinterval} - 30 ) )
+	{
 		if ( $data{status}{statsv} )
 		{
 			queuemsg(1,"STATS v");
@@ -650,7 +661,10 @@ sub timed_events
 			$data{status}{statsv} = 1;
 			$data{time}{statsv} = time;
 		}
+	}
 
+	if ( ( time - $data{time}{statsl} ) >= ( $conf{pollinterval} - 30 ) )
+	{
 		if ( $data{status}{statsl} )
 		{
 			queuemsg(1,"STATS l");
@@ -662,40 +676,59 @@ sub timed_events
 			$data{status}{statsl} = 1;
 			$data{time}{statsl} = time;
 		}
+	}
 
-		if ( !$conf{hubmode} )
+	if ( ( ( time - $data{time}{lusers} ) >= ( $conf{pollinterval} - 30 ) ) && !$conf{hubmode} )
+	{
+		if ( $data{status}{lusers} )
 		{
-			if ( $data{status}{lusers} )
-			{
-				queuemsg(1,"LUSERS");
-				$data{status}{lusers} = 0;
-			}
-			else
-			{
-				$data{status}{lusers} = 1;
-				$data{time}{lusers} = time;
-			}
+			queuemsg(1,"LUSERS");
+			$data{status}{lusers} = 0;
 		}
-
-		if ( !$conf{hubmode} && $conf{locglineaction} !~ /disable/i )
+		else
 		{
-			if ( $data{status}{who} )
-			{
-				open(WHO,">$conf{path}/var/users.tmp");
-				close(WHO);
-				queuemsg(1,"WHO $data{servername} x%nuhilraf");
-				$data{status}{who} = 0;
-				delete $data{who};
-				$data{autoid} = 0;
-			}
-			else
-			{
-				$data{status}{who} = 1;
-				$data{time}{who} = time;
-			}
+			$data{status}{lusers} = 1;
+			$data{time}{lusers} = time;
 		}
 	}
 
+	if ( ( ( time - $data{time}{who} ) >= ( $conf{pollinterval} - 30 ) ) && !$conf{hubmode} && $conf{locglineaction} !~ /disable/i )
+	{
+		if ( $data{status}{who} )
+		{
+			open(WHO,">$conf{path}/var/users.tmp");
+			close(WHO);
+			queuemsg(1,"WHO $data{servername} x%nuhilraf");
+			$data{status}{who} = 0;
+			delete $data{who};
+			$data{autoid} = 0;
+		}
+		else
+		{
+			$data{status}{who} = 1;
+			$data{time}{who} = time;
+		}
+	}
+
+	if ( ( time - $data{time}{rping} ) >= ( $conf{pollinterval} - 30 ) )
+	{
+		if ( $data{status}{rping} )
+		{
+			foreach( keys %{$data{clines}} )
+			{
+				if ( ( $conf{hubmode} && ( $data{statsv}{$_}{hub} || exists $data{uplinks}{$_} ) ) || !$conf{hubmode} )
+				{
+					queuemsg(1,"RPING $_");
+					$data{status}{rping} = 0;
+				}
+			}
+		}
+		else
+		{
+			$data{status}{rping} = 1;
+			$data{time}{rping} = time;
+		}
+	}
 }
 
 sub irc_loop
@@ -1132,7 +1165,7 @@ sub irc_loop
 					my $diff = $sendq - $data{last}{sendq}{$server};
 					if ( $diff =~ /^\d+$/ ) { $diff ="+$diff"; }
 
-					queuemsg(2,"NOTICE \@$conf{channel} :WARNING: Detected high SendQ to $server: $sendq ($diff)");
+					queuemsg(2,"NOTICE \@$conf{channel} :" . chr(2) . "WARNING" . chr(2) . ": Detected high SendQ to $server: $sendq ($diff)");
 					push_notify("SENDQ $server: $sendq ($diff)");
 				}
 			}
@@ -1172,38 +1205,43 @@ sub irc_loop
 		elsif ( $line =~ /^219 $data{nick} / )
 		{
 			# end of STATS
-			if ( $data{status}{statsc} )
-			{
-				$data{time}{statsv} = time;
-				$data{status}{statsv} = 1;
-				$data{time}{statsl} = time;
-				$data{status}{statsl} = 1;
-			}
-			else
+
+			if ( !$data{status}{statsc} )
 			{
 				$data{time}{statsc} = time;
 				$data{status}{statsc} = 1;
-				foreach( keys %{$data{clines}} )
-				{
-					queuemsg(1,"RPING $_");
-				}
 			}
+
+			if ( !$data{status}{statsv} )
+			{
+				$data{time}{statsv} = time;
+				$data{status}{statsv} = 1;
+			}
+
+			if ( !$data{status}{statsl} )
+			{
+				$data{time}{statsl} = time;
+				$data{status}{statsl} = 1;
+			}
+
 		}
 		elsif ( $line =~ /^RPONG $data{nick} (.*) (\d+) :/ )
 		{
-			my $hub = $1;
+			my $srv = $1;
 			my $rping = $2;
-			$hub =~ tr/[A-Z]/[a-z]/;
-			if ( $rping > $conf{rpingwarn} && $rping > $data{clines}{$hub} )
+			$srv =~ tr/[A-Z]/[a-z]/;
+			if ( $rping > $conf{rpingwarn} && $rping > $data{clines}{$srv} && exists $data{statsv}{$srv} )
 			{
-				my $diff = $rping - $data{clines}{$hub};
+				my $diff = $rping - $data{clines}{$srv};
 				if ( $diff =~ /^\d+$/ ) { $diff ="+$diff"; }
 
-				queuemsg(2,"NOTICE \@$conf{channel} :WARNING: Detected high RPING for $hub: $rping ($diff)");
-				push_notify("RPING $hub: $rping ms ($diff)");
+				queuemsg(2,"NOTICE \@$conf{channel} :" . chr(2) . "WARNING" . chr(2) . ": Detected high RPING for $srv: $rping ($diff)");
+				push_notify("RPING $srv: $rping ms ($diff)");
 			}
 
-			$data{clines}{$hub} = $2;
+			$data{clines}{$srv} = $2;
+			$data{time}{rping} = time;
+			$data{status}{rping} = 1;
 
 		}
 		elsif ( $line =~ s/^NOTICE (.*) :\*\*\* Notice -- //i )
@@ -1506,7 +1544,7 @@ sub load_config
 		{ push(@ECONF,"DCCENABLE"); }
 		if ( !( $newconf{dccport} =~ /^\d+$/ ) )
 		{ push(@ECONF,"DCCPORT"); }
-		if ( !( $newconf{nick} =~ /^(,|\w)+$/i ) )
+		if ( !( $newconf{nick} =~ /^(,|[^\s])+$/i ) )
 		{ push(@ECONF,"NICK"); }
 		if ( !( $newconf{ident} =~ /^\w+$/i ) )
 		{ push(@ECONF,"IDENT"); }
@@ -1516,7 +1554,7 @@ sub load_config
 		{ push(@ECONF,"OPERPASS"); }
 		if ( !( $newconf{channel} =~ /^(\&|\#)\w+$/i ) )
 		{ push(@ECONF,"CHANNEL"); }
-		if ( !( $newconf{chankey} =~ /^(\w+|)$/i ) )
+		if ( !( $newconf{chankey} =~ /^(([^\s]+)|)$/i ) )
 		{ push(@ECONF,"CHANKEY"); }
 		if ( !( $newconf{chanmode} =~ /^((\+\w+)|)$/i ) )
 		{ push(@ECONF,"CHANMODE"); }
@@ -1969,7 +2007,7 @@ sub dcc
 							print $client "Your GMT offset is $eoff\n";
 							print $client "note: you can change your GMT offset at any time with the 'TZ' command, see 'HELP TZ'\n";
 							print $client "\n";
-							print $client "WARNING: please choose carefully the search options. Otherwise you risk to be flooded by thousands of messages!\n";
+							print $client chr(2) . "WARNING: please choose carefully the search options. Otherwise you risk to be flooded by thousands of messages!" . chr(2) . "\n";
 							print $client "\n";
 							print $client "enter 'HELP' for help ;)\n";
 						}
@@ -2490,16 +2528,16 @@ sub traffic
 			if ( /^(\w+) +\d+ +<Link\#\d+> +\w\w:\w\w:\w\w:\w\w:\w\w:\w\w +(\d+) +(\d+) +(\d+) +(\d+) +(\d+) +(\d+) +(\d+)/i )
 			{
 				my $ifname = $1;
-				if ( $ifname =~ /(lo|gif)\d+/ )
+				if ( $ifname =~ /(lo|gif|wg|tun)\d+/ )
 				{
 					#ignored
 				}
 				else
 				{
 					$iftraffic{$ifname}{ip} = $2;
-					$iftraffic{$ifname}{ib} = $4;
-					$iftraffic{$ifname}{op} = $5;
-					$iftraffic{$ifname}{ob} = $7;
+					$iftraffic{$ifname}{ib} = $5;
+					$iftraffic{$ifname}{op} = $6;
+					$iftraffic{$ifname}{ob} = $8;
 				}
 			}
 		}
@@ -2514,13 +2552,20 @@ sub traffic
 			s/^ +//;
 			s/:/ /;
 			s/ +/ /g;
-			if ( /^(eth\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) / )
+			if ( /^(\w+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) / )
 			{
 				my $ifname = $1;
-				$iftraffic{$ifname}{ip} = $3;
-				$iftraffic{$ifname}{op} = $11;
-				$iftraffic{$ifname}{ib} = $2;
-				$iftraffic{$ifname}{ob} = $10;
+				if ( $ifname =~ /(lo|gif|wg|tun)\d+/ )
+				{
+					#ignored
+				}
+				else
+				{
+					$iftraffic{$ifname}{ip} = $3;
+					$iftraffic{$ifname}{op} = $11;
+					$iftraffic{$ifname}{ib} = $2;
+					$iftraffic{$ifname}{ob} = $10;
+				}
 			}
 		}
 		close(TRAF);
