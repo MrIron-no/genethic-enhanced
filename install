@@ -65,7 +65,7 @@ if ( !$status ) { print "Installation aborted.\n"; exit 1; }
 
 print "testing required perl modules:\n";
 my $module;
-foreach $module (split(/ /,"strict File::Basename IO::Socket POSIX Time::Local Time::HiRes File::Copy LWP::UserAgent"))
+foreach $module (split(/ /,"strict File::Basename IO::Socket POSIX Time::Local Time::HiRes File::Copy LWP::UserAgent LWP::Protocol::https"))
 {
 	printf("    %-15s    ",$module);
 	if ( `/usr/bin/env perl -M$module -e 'print "1";' 2>&1` ne '1' )

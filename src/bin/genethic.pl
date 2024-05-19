@@ -137,21 +137,30 @@ while(1)
 
 sub push_notify($)
 {
+    if ( !$conf{pushenable} ) { return 0; }
 
-	if ( !$conf{pushenable} ) { return 0; }
+    my $message = $_[0];
+    my $url = 'https://api.pushover.net/1/messages.json';
+    my $ua = LWP::UserAgent->new();
 
-	my $message = $_[0];
-	my $url = 'https://api.pushover.net/1/messages.json';
+    foreach ( @{$conf{usertoken}} )
+    {
+        my $response = $ua->post(
+            $url,
+            [
+                "token" =>  $conf{pushtoken},
+                "user" =>  $_,
+                "message" => $message,
+            ]
+        );
 
-	foreach ( @{$conf{usertoken}} )
-	{
-		LWP::UserAgent->new()->post(
-		  "https://api.pushover.net/1/messages.json", [
-		  "token" =>  $conf{pushtoken},
-		  "user" =>  $_,
-		  "message" => $message,
-		]);
-	}
+        if ($response->is_success) {
+            logmsg("Notification sent successfully to $_");
+        } else {
+            logmsg("Failed to send notification to $_: " . $response->status_line);
+            logmsg("Response content: " . $response->decoded_content);
+        }
+    }
 }
 
 
