@@ -1230,7 +1230,7 @@ sub irc_loop
 			my $srv = $1;
 			my $rping = $2;
 			$srv =~ tr/[A-Z]/[a-z]/;
-			if ( $rping > $conf{rpingwarn} && $rping > $data{clines}{$srv} && exists $data{statsv}{$srv} )
+			if ( $rping > $conf{rpingwarn} && $rping > $data{clines}{$srv} && exists $data{uplinks}{$srv} )
 			{
 				my $diff = $rping - $data{clines}{$srv};
 				if ( $diff =~ /^\d+$/ ) { $diff ="+$diff"; }
@@ -1302,7 +1302,7 @@ sub irc_loop
 			}
 			elsif ( $line =~ /^Net junction: (.*) (.*)$/ )
 			{
-				queuemsg(3,"NOTICE \@$conf{channel} :NETJOIN $1 $2");
+				queuemsg(3,"NOTICE \@$conf{channel} :". chr(2) . "NETJOIN" . chr(2) ." $1 $2");
 
 				my $notify = 0;
 				my $server1 = $1;
@@ -1328,7 +1328,7 @@ sub irc_loop
 			}
 			elsif ( $line =~ /^Net break: (.*) (.*)$/ )
 			{
-				queuemsg(3,"NOTICE \@$conf{channel} :NETQUIT $1 $2");
+				queuemsg(3,"NOTICE \@$conf{channel} :" . chr(2) . "NETQUIT" . chr(2) . " $1 $2");
 
 				my $notify = 0;
 				if ( $1 =~ /$data{servername}/i || $2 =~ /$data{servername}/i )
