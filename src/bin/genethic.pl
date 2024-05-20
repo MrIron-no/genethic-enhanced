@@ -324,7 +324,14 @@ sub timed_events
 			}
 		}
 
-		$data{status}{report} = time - (  time % $conf{pollinterval} );
+		if ( $conf{multimode} )
+		{
+			$data{status}{report} = time;
+		}
+		else
+		{
+			$data{status}{report} = time - (  time % $conf{pollinterval} );
+		}
 
 		if ( !$conf{hubmode} )
 		{
@@ -921,7 +928,7 @@ sub irc_loop
 				if ( $line =~ /warm/i )
 				{
 					%conf = load_config($config);
-					queuemsg(3,$CMD . "configuration reloaded by $nick");
+					queuemsg(3,$CMD . "Configuration reloaded by $nick");
 					queuemsg(3,"$replymode $nick :configuration reloaded.");
 				}
 				elsif ( $line =~ /cold/i )
@@ -1205,7 +1212,7 @@ sub irc_loop
 			# end of WHO
 			if ( !$data{rfs} )
 			{ 
-				queuemsg(2,$CMD . "GenEthic-Enhanced v$conf{version}, ready.");
+				queuemsg(2,$CMD . chr(2) . "GenEthic-Enhanced" . chr(2) . " v.$conf{version}, ready.");
 			}
 			$data{rfs} = 1;
 			if ( !$conf{hubmode} && $conf{locglineaction} !~ /disable/i )
@@ -1351,7 +1358,7 @@ sub irc_loop
 					$opermode = "LocalOPER";
 				}
 
-				queuemsg(2,$CMD . chr(2) . "$opernick\!$operhost" . chr(2) ." is now $opermode");
+				queuemsg(2,$CMD . "$opernick\!$operhost is now ". chr(31) ."$opermode" . chr(31));
 				if ( !($opernick =~ /^$data{nick}$/i ))
 				{
 					queuemsg(2,"INVITE $opernick $conf{channel}");
@@ -1412,7 +1419,7 @@ sub irc_loop
 		}
 		elsif ( $line =~ /NOTICE $data{nick} :Highest connection count: \d+ \((\d+) clients\)$/ )
 		{
-			if ( !$conf{hubmode} )
+			if ( !$conf{hubmode} && !$conf{multimode} )
 			{
 				$data{lusers}{maxusers} = $1;
 				$data{status}{lusers} = 1;
@@ -1598,6 +1605,8 @@ sub load_config
 		{ push(@ECONF,"VHOST"); }
 		if ( !( $newconf{hubmode} =~ /^(0|1)$/i ) )
 		{ push(@ECONF,"HUBMODE"); }
+		if ( !( $newconf{multimode} =~ /^(0|1)$/i ) )
+		{ push(@ECONF,"MULTIMODE"); }
 		if ( !( $newconf{timeout} =~ /^\d+$/ ) )
 		{ push(@ECONF,"TIMEOUT"); }
 		if ( !( $newconf{dccenable} =~ /^\d+$/ ) )
