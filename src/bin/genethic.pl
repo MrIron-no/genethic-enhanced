@@ -765,7 +765,7 @@ sub timed_events
 		}
 		if ( $notify )
 		{
-			queuemsg(2,$MD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected RPING: $warnmsg" . chr(3));
+			queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected RPING: $warnmsg" . chr(3));
 			push_notify("RPING: $warnmsg");
 		}
 		$data{status}{rpwarn} = 0;
