@@ -519,7 +519,7 @@ sub timed_events
 
 			if ( $import =~ /\d/ )
 			{
-				queuemsg(2,$CMD . $import");
+				queuemsg(2,$CMD . $import);
 			}
 		}
 
