@@ -242,7 +242,7 @@ sub timed_events
 		{
 			if ( $userchange =~ /^\d+$/ ) { $userchange = "+$userchange"; }
 	
-			queuemsg(2,"NOTICE \@$conf{channel} :" . chr(2) . "WARNING" . chr(2) . ": Possible attack, $userchange (+$usermore/-$userless) users in $conf{cetimethres} seconds ($data{lusers}{locusers} users)");
+			queuemsg(2,"NOTICE \@$conf{channel} :" . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Possible attack, $userchange (+$usermore/-$userless) users in $conf{cetimethres} seconds ($data{lusers}{locusers} users)" . chr(3));
 			push_notify("USER CHANGE: +$usermore/-$userless");
 			$data{notice}{lastprint} = time;
 		}
@@ -408,7 +408,7 @@ sub timed_events
 						$rpingmsg .= "($rpdiff)";
 					}
 				}
-				$rpingmsg .= " ";
+				$rpingmsg .= " -- ";
 
 				if ( $data{clines}{$_} =~ /^\d+$/ )
 				{
@@ -420,7 +420,7 @@ sub timed_events
 
 		if ( $rpingmsg && $conf{reportenable} )
 		{
-			$rpingmsg =~ s/\s+$//;
+			$rpingmsg = substr $rpingmsg, 0, -4;
 			queuemsg(2,"NOTICE \@$conf{channel} :RPING  -> $rpingmsg");
 		}
 
@@ -799,7 +799,11 @@ sub irc_loop
 					if ( $data{lusers}{maxusers} && !$conf{hubmode} ) {
 						queuemsg(2,"MODE $conf{channel} +l $data{lusers}{maxusers}");
 					}
-					queuemsg(2,"MODE $conf{channel} +imnst-pr");
+
+					if ( $conf{chanmode} )
+					{
+						queuemsg(2,"MODE $conf{channel} $conf{chanmode}");
+					}
 				}
 			}
 		}
@@ -1174,7 +1178,8 @@ sub irc_loop
 					my $diff = $sendq - $data{last}{sendq}{$server};
 					if ( $diff =~ /^\d+$/ ) { $diff ="+$diff"; }
 
-					queuemsg(2,"NOTICE \@$conf{channel} :" . chr(2) . "WARNING" . chr(2) . ": Detected high SendQ to $server: $sendq ($diff)");
+					$server =~ s/\.$conf{networkdomain}//;
+					queuemsg(2,"NOTICE \@$conf{channel} :" . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected high SendQ to $server: $sendq ($diff)" . chr(3));
 					push_notify("SENDQ $server: $sendq ($diff)");
 				}
 			}
@@ -1244,8 +1249,10 @@ sub irc_loop
 				my $diff = $rping - $data{clines}{$srv};
 				if ( $diff =~ /^\d+$/ ) { $diff ="+$diff"; }
 
-				queuemsg(2,"NOTICE \@$conf{channel} :" . chr(2) . "WARNING" . chr(2) . ": Detected high RPING for $srv: $rping ($diff)");
-				push_notify("RPING $srv: $rping ms ($diff)");
+				my $srvshort = $srv;
+				$srvshort =~ s/\.$conf{networkdomain}//;
+				queuemsg(2,"NOTICE \@$conf{channel} :" . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected high RPING for $srvshort: $rping ($diff)" . chr(3));
+				push_notify("RPING $srvshort: $rping ms ($diff)");
 			}
 
 			$data{clines}{$srv} = $2;
@@ -1330,7 +1337,7 @@ sub irc_loop
 					}
 				}
 
-				if ( $notify )
+				if ( $notify || $conf{pushnetall} )
 				{
 					push_notify("NETJOIN $server1 $server2");
 				}
@@ -1340,22 +1347,25 @@ sub irc_loop
 				queuemsg(3,"NOTICE \@$conf{channel} :" . chr(2) . "NETQUIT" . chr(2) . " $1 $2");
 
 				my $notify = 0;
-				if ( $1 =~ /$data{servername}/i || $2 =~ /$data{servername}/i )
+				my $server1 = $1;
+				my $server2 = $2;
+
+				if ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i )
 				{
 					$notify = 1;
 				}
 
 				foreach ( @{$conf{splitlist}} )
 				{
-					if ( $1 =~ /$_/i || $2 =~ /$_/i )
+					if ( $server1 =~ /$_/i || $server2 =~ /$_/i )
 					{
 						$notify = 1;
 					}
 				}
 
-				if ( $notify )
+				if ( $notify || $conf{pushnetall} )
 				{
-					push_notify("NETQUIT $1 $2");
+					push_notify("NETQUIT $server1 $server2");
 				}
 			}
 		}
@@ -1565,7 +1575,7 @@ sub load_config
 		{ push(@ECONF,"CHANNEL"); }
 		if ( !( $newconf{chankey} =~ /^(([^\s]+)|)$/i ) )
 		{ push(@ECONF,"CHANKEY"); }
-		if ( !( $newconf{chanmode} =~ /^((\+\w+)|)$/i ) )
+		if ( !( $newconf{chanmode} =~ /^\+.*$/ ) )
 		{ push(@ECONF,"CHANMODE"); }
 		if ( !( $newconf{networkdomain} =~ /^(\w|\.|\-|\_)+$/i ) )
 		{ push(@ECONF,"NETWORKDOMAIN"); }
@@ -1628,6 +1638,9 @@ sub load_config
 		if ( !( $newconf{pushenable} =~ /^(0|1)$/i ) )
 		{ push(@ECONF,"PUSHENABLE"); }
 
+		if ( !( $newconf{pushnetall} =~ /^(0|1)$/i ) )
+		{ push(@ECONF,"PUSHNETALL"); }
+
 		if ( !( $newconf{pushtoken} =~ /^.+$/ ) )
 		{ push(@ECONF,"PUSHTOKEN"); }
 
@@ -1665,15 +1678,7 @@ sub load_config
 			}
 			elsif ( $os =~ /Linux/i )
 			{
-				if ( $rel =~ /^2.(2|4|6)/ )
-				{
-					$newconf{trafficsub} = 'linux';
-				}
-				else
-				{
-					logmsg("TRAFFICREPORT: $os-$rel is NOT supported. Feature disabled.");
-					$newconf{trafficreport} = 0;
-				}
+				$newconf{trafficsub} = 'linux';
 			}
 			else
 			{
@@ -2564,7 +2569,7 @@ sub traffic
 			if ( /^(\w+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+) / )
 			{
 				my $ifname = $1;
-				if ( $ifname =~ /(lo|gif|wg|tun)\d+/ )
+				if ( $ifname =~ /lo|((gif|wg|tun)\d+)/ )
 				{
 					#ignored
 				}
