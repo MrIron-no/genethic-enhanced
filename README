@@ -97,9 +97,9 @@ UNDERSTANDING BOT CHANNEL OUTPUT
 
  Example:
 
-   -bot:@&channel- @ 6454(5.60%)/115338 (+208/-246). No 4/29. 48620(+9)chans, 67 unknown
-   -bot:@&channel- @ RPING  -> hub2:25(+0) hub3:19(+0)
-   -bot:@&channel- @ UPLINK -> [hub1[rp:19(+0) sq:0(+0) up:1d0h53m]
+   -bot:@&channel- @ COUNT  -> 6454(5.60%)/115338 (+208/-246). No 4/29. 48620(+9)chans, 67 unknown
+   -bot:@&channel- @ RPING  -> hub2:25(+3) -- hub3:19(-7) -- hub4:47
+   -bot:@&channel- @ UPLINK -> hub1[rp:19(+4) sq:0 up:1d0h53m]
    -bot:@&channel- @ TRAFFIC-> xl0 904/2471 kbps 1705/1599 pps xl1 209/49 kbps 52/38 pps
 
    on the first line, in the order the fields appear:
@@ -119,6 +119,7 @@ UNDERSTANDING BOT CHANNEL OUTPUT
 
      - the last received rping results of all the hubs configured in your
        server config to which the server is not linked. 
+
   on the third line:
      - last received rping result and sendq result for linked server(s) and uptime. 
        rping values are in miliseconds.
@@ -127,17 +128,12 @@ UNDERSTANDING BOT CHANNEL OUTPUT
 
      - traffic status for all the local interfaces(2). its always shown in the
        format in/out, first 'kbps' then 'pps' (packets per second).
-       (1) actually only Linux and FreeBSD will display this line.
-       (2) on Linux all eth* interfaces. on FreeBSD all interfaces except lo and gif. 
 
 
 USAGE OF THE BOT
 
  Once everything is correctly configured, the bot should take place in
- its local channel. The channel is set in +i (invite only) mode. To be
- able to join the channel, just do '/join &channel OVERRIDE'. For sure
- you need to be OPER to do it ;-P Then the bot will authenticate you
- automaticly. You can talk to the bot by PRIVMSG or NOTICE.
+ its channel. You can talk to the bot by PRIVMSG or NOTICE.
  The bot will also INVITE you to the channel as soon as you use the
  OPER command.
 

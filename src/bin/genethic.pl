@@ -43,6 +43,7 @@ $SIG{CHLD} = "IGNORE";
 my %server;
 my %data;
 my $config;
+my $CMD;
 
 if ( $ARGV[0] )
 {
@@ -243,7 +244,7 @@ sub timed_events
 		{
 			if ( $userchange =~ /^\d+$/ ) { $userchange = "+$userchange"; }
 	
-			queuemsg(2,"NOTICE \@$conf{channel} :" . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Possible attack, $userchange (+$usermore/-$userless) users in $conf{cetimethres} seconds ($data{lusers}{locusers} users)" . chr(3));
+			queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Possible attack, $userchange (+$usermore/-$userless) users in $conf{cetimethres} seconds ($data{lusers}{locusers} users)" . chr(3));
 			push_notify("USER CHANGE: +$usermore/-$userless");
 			$data{notice}{lastprint} = time;
 		}
@@ -370,7 +371,7 @@ sub timed_events
 
 				$data{last}{channels} = $data{lusers}{channels};
 
-				queuemsg(2,"NOTICE \@$conf{channel} :$statmsg");
+				queuemsg(2,$CMD . "COUNT  -> $statmsg");
 			}
 
 			print MRTG "LOCAL_USERS:$data{lusers}{locusers}\n";
@@ -422,7 +423,7 @@ sub timed_events
 		if ( $rpingmsg && $conf{reportenable} )
 		{
 			$rpingmsg = substr $rpingmsg, 0, -4;
-			queuemsg(2,"NOTICE \@$conf{channel} :RPING  -> $rpingmsg");
+			queuemsg(2,$CMD . "RPING  -> $rpingmsg");
 		}
 
 		my $linkmsg;
@@ -480,15 +481,17 @@ sub timed_events
 		if ( $linkmsg && $conf{reportenable} )
 		{
 			$linkmsg = substr $linkmsg, 0, -4;
-			queuemsg(2,"NOTICE \@$conf{channel} :UPLINK -> $linkmsg");
+			queuemsg(2,$CMD . "UPLINK -> $linkmsg");
 		}
 
 		close(MRTG);
 
 		if ( $trafmsg =~ /\d/ )
 		{
-			queuemsg(2,"NOTICE \@$conf{channel} :$trafmsg");
+			queuemsg(2,$CMD . $trafmsg);
 		}
+
+		queuemsg(2,$CMD . " ");
 
 		# its IMPORT_FILE time
 
@@ -516,7 +519,7 @@ sub timed_events
 
 			if ( $import =~ /\d/ )
 			{
-				queuemsg(2,"NOTICE \@$conf{channel} :$import");
+				queuemsg(2,$CMD . $import");
 			}
 		}
 
@@ -583,11 +586,11 @@ sub timed_events
 						{
 							if ( $conf{locglineaction} =~ /warn/i )
 							{
-								queuemsg(2,"NOTICE \@$conf{channel} :" . chr(2) . "CLONE WARNING" . chr(2) . ": '$rname' -> '$rnamewild' ($newmatch users)");
+								queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "CLONE WARNING" . chr(2) . ": '$rname' -> '$rnamewild' ($newmatch users)" . chr(3));
 							}
 							elsif ( $conf{locglineaction} =~ /gline/i )
 							{
-								queuemsg(2,"NOTICE \@$conf{channel} :" . chr(2) . "GLINE" . chr(2) . " for '$rname' -> '$rnamewild' ($newmatch users)");
+								queuemsg(2,$CMD . chr(2) . "GLINE" . chr(2) . " for '$rname' -> '$rnamewild' ($newmatch users)");
 								queuemsg(2,"GLINE +\$R$rnamewild $conf{rnameglinetime} :Auto-Klined for $conf{rnameglinetime} seconds.");
 							}
 						}
@@ -595,7 +598,7 @@ sub timed_events
 						{
 							if ( $conf{locglineaction} =~ /gline/i )
 							{
-								queuemsg(2,"NOTICE \@$conf{channel} :" . chr(2) . "GLINE WARNING" . chr(2) . ": will not set gline for '$rname' (gline on '$rnamewild') should affect $counter{$rname} users, but will affect $newmatch users. Please take a manual action!");
+								queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "GLINE WARNING" . chr(2) . ": will not set gline for '$rname' (gline on '$rnamewild') should affect $counter{$rname} users, but will affect $newmatch users. Please take a manual action!" . chr(3));
 							}
 						}
 					}
@@ -629,11 +632,11 @@ sub timed_events
 					{
 						if ( $conf{locglineaction} =~ /warn/i )
 						{
-							queuemsg(2,"NOTICE \@$conf{channel} :" . chr(2) . "CLONE WARNING" . chr(2) . ": '$userip' ($counter{$userip} users)");
+							queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "CLONE WARNING" . chr(2) . ": '$userip' ($counter{$userip} users)" . chr(3));
 						}
 						elsif ( $conf{locglineaction} =~ /gline/i )
 						{
-							queuemsg(2,"NOTICE \@$conf{channel} :" . chr(2) . "GLINE" . chr(2) . " for '$userip' ($counter{$userip} users)");
+							queuemsg(2,$CMD . chr(2) . "GLINE" . chr(2) . " for '$userip' ($counter{$userip} users)");
 							queuemsg(2,"GLINE \!\+*\@$userip $conf{ipglinetime} :Auto-Klined for $conf{ipglinetime} seconds.");
 						}
 					}
@@ -762,7 +765,7 @@ sub timed_events
 		}
 		if ( $notify )
 		{
-			queuemsg(2,"NOTICE \@$conf{channel} :" . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected RPING: $warnmsg" . chr(3));
+			queuemsg(2,$MD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected RPING: $warnmsg" . chr(3));
 			push_notify("RPING: $warnmsg");
 		}
 		$data{status}{rpwarn} = 0;
@@ -789,7 +792,7 @@ sub timed_events
 		}
 		if ( $notify )
 		{
-			queuemsg(2,"NOTICE \@$conf{channel} :" . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected SENDQ: $warnmsg" . chr(3));
+			queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected SENDQ: $warnmsg" . chr(3));
 			push_notify("SENDQ: $warnmsg");
 		}
 
@@ -918,7 +921,7 @@ sub irc_loop
 				if ( $line =~ /warm/i )
 				{
 					%conf = load_config($config);
-					queuemsg(3,"NOTICE \@$conf{channel} :configuration reloaded by $nick");
+					queuemsg(3,$CMD . "configuration reloaded by $nick");
 					queuemsg(3,"$replymode $nick :configuration reloaded.");
 				}
 				elsif ( $line =~ /cold/i )
@@ -1065,7 +1068,7 @@ sub irc_loop
 				# gline_type:who:user@host:expire
 				if ( $2 eq 'local' )
 				{
-					queuemsg(3,"NOTICE \@$conf{channel} :LOCGLINE for $3 set by $1 ($5)");
+					queuemsg(3,$CMD . chr(2) . "LOCGLINE" . chr(2) . " for $3 set by " . chr(2) . $1. chr(2) . " ($5)");
 				}
 				writemsg("gline","$2:$1:$3:$4:$5");
 			}
@@ -1202,7 +1205,7 @@ sub irc_loop
 			# end of WHO
 			if ( !$data{rfs} )
 			{ 
-				queuemsg(2,"NOTICE \@$conf{channel} :GenEthic-Enhanced v$conf{version}, ready.");
+				queuemsg(2,$CMD . "GenEthic-Enhanced v$conf{version}, ready.");
 			}
 			$data{rfs} = 1;
 			if ( !$conf{hubmode} && $conf{locglineaction} !~ /disable/i )
@@ -1320,7 +1323,7 @@ sub irc_loop
 				my $failhost = $2;
 
 				$data{operfail}{$failhost}++;
-				queuemsg(2,"NOTICE \@$conf{channel} :OPER Failed for $failnick\!$failhost ($data{operfail}{$failhost})");
+				queuemsg(2,$CMD . chr(2) . "OPER Failed" . chr(2) . " for $failnick\!$failhost ($data{operfail}{$failhost})");
 				if ( $data{operfail}{$failhost} >= $conf{operfailmax} )
 				{
 					delete $data{operfail}{$failhost};
@@ -1348,7 +1351,7 @@ sub irc_loop
 					$opermode = "LocalOPER";
 				}
 
-				queuemsg(2,"NOTICE \@$conf{channel} :$opernick\!$operhost is now $opermode");
+				queuemsg(2,$CMD . chr(2) . "$opernick\!$operhost" . chr(2) ." is now $opermode");
 				if ( !($opernick =~ /^$data{nick}$/i ))
 				{
 					queuemsg(2,"INVITE $opernick $conf{channel}");
@@ -1356,7 +1359,7 @@ sub irc_loop
 			}
 			elsif ( $line =~ /^Net junction: (.*) (.*)$/ )
 			{
-				queuemsg(3,"NOTICE \@$conf{channel} :". chr(2) . "NETJOIN" . chr(2) ." $1 $2");
+				queuemsg(3,$CMD . chr(2) . "NETJOIN" . chr(2) ." $1 $2");
 
 				my $notify = 0;
 				my $server1 = $1;
@@ -1382,7 +1385,7 @@ sub irc_loop
 			}
 			elsif ( $line =~ /^Net break: (.*) (.*)$/ )
 			{
-				queuemsg(3,"NOTICE \@$conf{channel} :" . chr(2) . "NETQUIT" . chr(2) . " $1 $2");
+				queuemsg(3,$CMD . chr(2) . "NETQUIT" . chr(2) . " $1 $2");
 
 				my $notify = 0;
 				my $server1 = $1;
@@ -1642,6 +1645,9 @@ sub load_config
 		if ( !( $newconf{reportenable} =~ /^(0|1)$/i ) )
 		{ push(@ECONF,"REPORTENABLE"); }
 
+		if ( !( $newconf{reportcmd} =~ /^(PRIVMSG|ONOTICE)$/i ) )
+		{ push(@ECONF,"REPORTCMD"); }
+
 		if ( !( $newconf{locglineaction} =~ /^(GLINE|WARN|DISABLE)$/i ) )
 		{ push(@ECONF,"LOCGLINEACTION"); }
 		if ( !( $newconf{rnameglinetime} =~ /^\d+$/ ) )
@@ -1663,7 +1669,6 @@ sub load_config
 			if ( !($newconf{ipglinelimit} =~ /^\d+$/ ) )
 			{ push(@ECONF,"IPGLINELIMIT"); }
 		}
-
 
 		if ( !( $newconf{ceuserthres} =~ /^\d+$/ ) )
 		{ push(@ECONF,"CEUSERTHRES"); }
@@ -1724,6 +1729,16 @@ sub load_config
 				$newconf{trafficreport} = 0;
 			}
 		}
+
+		if ( $newconf{reportcmd} =~ /privmsg/i )
+		{
+			$CMD = "PRIVMSG $newconf{channel} :";
+		}
+		elsif ( $newconf{reportcmd} =~ /onotice/i )
+		{
+			$CMD = "NOTICE \@$newconf{channel} :";
+		}
+
 		return %newconf;
 	}
 	else
