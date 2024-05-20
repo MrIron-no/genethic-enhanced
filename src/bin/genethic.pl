@@ -775,7 +775,7 @@ sub timed_events
 
 		foreach( keys %{$data{uplinks}} )
 		{
-			if ( $data{uplinks}{$_} > $conf{sendqwarn} && $data{uplinks}{$_} > $data{last}{rping}{$_} )
+			if ( $data{uplinks}{$_} > $conf{sendqwarn} && $data{uplinks}{$_} > $data{last}{sendq}{$_} )
 			{
 				my $srv = $_;
 				$srv =~ s/\.$conf{networkdomain}//;
