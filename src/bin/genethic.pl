@@ -31,6 +31,7 @@ use Time::Local;
 use Time::HiRes qw (sleep);
 use File::Copy;
 use LWP::UserAgent;
+use LWP::Protocol::https;
 
 $|=1;
 
@@ -212,7 +213,7 @@ sub timed_events
 
 		$data{connexitclean} = time;
 	}
-	if ( time - $data{notice}{lastcheck} >= 0 && time - $data{notice}{lastprint} >= $conf{cetimethres} )
+	if ( time - $data{notice}{lastcheck} >= 0 && time - $data{notice}{lastprint} >= $conf{cetimethres} && !$conf{hubmode} )
 	{
 		my $time;
 		my $userchange = 0;
@@ -735,8 +736,64 @@ sub timed_events
 		else
 		{
 			$data{status}{rping} = 1;
+			$data{status}{rpwarn} = 1;
 			$data{time}{rping} = time;
 		}
+	}
+
+	if ( ( time - $data{time}{rping} ) >= 10 && $data{status}{rpwarn} )
+	{
+		my $warnmsg;
+		my $notify = 0;
+
+		foreach( keys %{$data{clines}} )
+		{
+			if ( $data{clines}{$_} > $conf{rpingwarn} && $data{clines}{$_} > $data{last}{rping}{$_} && exists $data{uplinks}{$_} )
+			{
+				my $srv = $_;
+				$srv =~ s/\.$conf{networkdomain}//;
+
+				my $diff = $data{clines}{$_} - $data{last}{rping}{$_};
+				if ( $diff =~ /^\d+$/ ) { $diff ="+$diff"; }
+
+				$warnmsg .= $srv . ": " . $data{clines}{$_} . "(" . $diff . ") ";
+				$notify = 1;
+			}
+		}
+		if ( $notify )
+		{
+			queuemsg(2,"NOTICE \@$conf{channel} :" . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected RPING: $warnmsg" . chr(3));
+			push_notify("RPING: $warnmsg");
+		}
+		$data{status}{rpwarn} = 0;
+	}
+
+	if ( ( time - $data{time}{statsl} ) >= 10 && $data{status}{sqwarn} )
+	{
+		my $warnmsg;
+		my $notify = 0;
+
+		foreach( keys %{$data{uplinks}} )
+		{
+			if ( $data{uplinks}{$_} > $conf{sendqwarn} && $data{uplinks}{$_} > $data{last}{rping}{$_} )
+			{
+				my $srv = $_;
+				$srv =~ s/\.$conf{networkdomain}//;
+
+				my $diff = $data{uplinks}{$_} - $data{last}{sendq}{$_};
+				if ( $diff =~ /^\d+$/ ) { $diff ="+$diff"; }
+
+				$warnmsg .= $srv . ": " . $data{uplinks}{$_} . "(" . $diff . ") ";
+				$notify = 1;
+			}
+		}
+		if ( $notify )
+		{
+			queuemsg(2,"NOTICE \@$conf{channel} :" . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected SENDQ: $warnmsg" . chr(3));
+			push_notify("SENDQ: $warnmsg");
+		}
+
+		$data{status}{sqwarn} = 0;
 	}
 }
 
@@ -1172,16 +1229,6 @@ sub irc_loop
 			if ( $server =~ /$conf{networkdomain}/i )
 			{
 				$data{uplinks}{$server} = $sendq;
-
-				if ( $sendq > $conf{sendqwarn} )
-				{
-					my $diff = $sendq - $data{last}{sendq}{$server};
-					if ( $diff =~ /^\d+$/ ) { $diff ="+$diff"; }
-
-					$server =~ s/\.$conf{networkdomain}//;
-					queuemsg(2,"NOTICE \@$conf{channel} :" . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected high SendQ to $server: $sendq ($diff)" . chr(3));
-					push_notify("SENDQ $server: $sendq ($diff)");
-				}
 			}
 		}
 		elsif ( $line =~ s/^236 $data{nick} //i )
@@ -1216,26 +1263,27 @@ sub irc_loop
 				$data{uplinks}{$srcsrv} = "n/a";
 			}
 		}
-		elsif ( $line =~ /^219 $data{nick} / )
+		elsif ( $line =~ /^219 $data{nick} (c|v|l) /i )
 		{
 			# end of STATS
 
-			if ( !$data{status}{statsc} )
+			if ( $1 =~ /c/i )
 			{
 				$data{time}{statsc} = time;
 				$data{status}{statsc} = 1;
 			}
 
-			if ( !$data{status}{statsv} )
+			if ( $1 =~ /v/i )
 			{
 				$data{time}{statsv} = time;
 				$data{status}{statsv} = 1;
 			}
 
-			if ( !$data{status}{statsl} )
+			if ( $1 =~ /l/i )
 			{
 				$data{time}{statsl} = time;
 				$data{status}{statsl} = 1;
+				$data{status}{sqwarn} = 1;
 			}
 
 		}
@@ -1244,21 +1292,11 @@ sub irc_loop
 			my $srv = $1;
 			my $rping = $2;
 			$srv =~ tr/[A-Z]/[a-z]/;
-			if ( $rping > $conf{rpingwarn} && $rping > $data{clines}{$srv} && exists $data{uplinks}{$srv} )
-			{
-				my $diff = $rping - $data{clines}{$srv};
-				if ( $diff =~ /^\d+$/ ) { $diff ="+$diff"; }
-
-				my $srvshort = $srv;
-				$srvshort =~ s/\.$conf{networkdomain}//;
-				queuemsg(2,"NOTICE \@$conf{channel} :" . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected high RPING for $srvshort: $rping ($diff)" . chr(3));
-				push_notify("RPING $srvshort: $rping ms ($diff)");
-			}
 
 			$data{clines}{$srv} = $2;
 			$data{time}{rping} = time;
 			$data{status}{rping} = 1;
-
+			$data{status}{rpwarn} = 1;
 		}
 		elsif ( $line =~ s/^NOTICE (.*) :\*\*\* Notice -- //i )
 		{
