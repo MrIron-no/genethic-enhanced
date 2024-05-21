@@ -37,7 +37,7 @@ use LWP::Simple;
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024052100;
+my $revision = 2024052101;
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = "IGNORE";
@@ -463,7 +463,10 @@ sub timed_events
 
 				if ( $data{clines}{$_} =~ /^\d+$/ )
 				{
-					print MRTG "RPING_$_:$data{clines}{$_}\n";
+					my $srv = $_;
+					$srv =~ s/\.$conf{networkdomain}//;
+					$srv =~ s/\./\_/;
+					print MRTG "RPING_$srv:$data{clines}{$_}\n";
 					$data{last}{rping}{$_} = $data{clines}{$_};
 				}
 			}
@@ -501,7 +504,10 @@ sub timed_events
 
 				$data{last}{rping}{$_} = $data{clines}{$_};
 
-				print MRTG "RPING_$_:$data{clines}{$_}\n";
+				my $srv = $_;
+				$srv =~ s/\.$conf{networkdomain}//;
+				$srv =~ s/\./\_/;
+				print MRTG "RPING_$srv:$data{clines}{$_}\n";
 			}
 
 			my $sqdiff = 0;
@@ -520,7 +526,10 @@ sub timed_events
 			if ( $data{uplinks}{$_} =~ /^\d+$/ )
 			{
 				$data{last}{sendq}{$_} = $data{uplinks}{$_};
-				print MRTG "SENDQ_$_:$data{uplinks}{$_}\n";
+				my $srv = $_;
+				$srv =~ s/\.$conf{networkdomain}//;
+				$srv =~ s/\./\_/;
+				print MRTG "SENDQ_$srv:$data{uplinks}{$_}\n";
 			}
 
 			my $uptime = easytime(time-$data{statsv}{$_}{linkts});

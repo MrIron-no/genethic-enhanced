@@ -48,9 +48,9 @@ if ($ARGV[0] and $ARGV[0] eq "autoconf") {
 open(LOG,"$LOGDIR/genethic.log");
 while(<LOG>)
 {
-	if ( /SENDQ_(.*?)\.(.*?):(\d+)$/ )
+	if ( /SENDQ_(.*)\:(\d+)$/ )
 	{	
-		$data{$1} = $3;
+		$data{$1} = $2;
 		push(@uplinks, $1);
 	}
 }
