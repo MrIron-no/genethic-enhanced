@@ -32,10 +32,12 @@ use Time::HiRes qw (sleep);
 use File::Copy;
 use LWP::UserAgent;
 use LWP::Protocol::https;
+use LWP::Simple;
 
 $|=1;
 
 my $version = '1.0';
+my $revision = 2024052100;
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = "IGNORE";
@@ -136,6 +138,36 @@ while(1)
 	sleep(1);
 }
 
+sub check_update()
+{
+	my $data = get('https://raw.githubusercontent.com/mriron-no/genethic-enhanced/master/.version');
+	open my $url_fh, '<', \$data or return -1;
+
+	my $uversion;
+	my $urevision;
+
+	while (<$url_fh>)
+	{
+		if ( /^version ((\d|\.)+)/ )
+		{
+			$uversion = $1;
+		}
+		elsif ( /^revision (\d+)/ )
+		{
+			$urevision = $1;
+		}
+	}
+
+	logdeb("UPDATE: Most recent information on github is version: $uversion revision: $urevision");
+
+	if ( $urevision > $revision )
+	{
+		logmsg("Update available (version: $uversion -- revision: $urevision)");
+		return "Update available (version: " . chr(2) . $uversion . chr(2) . " -- revision: " . chr(2) . $urevision . chr(2) . ") running " . chr(2) . "v" . $version . chr(2) . " (rev. " . chr(2) . $revision . chr(2) . ")";
+	}
+
+	return 0;
+}
 
 sub push_notify($)
 {
@@ -187,8 +219,18 @@ sub queuemsg
 
 sub timed_events
 {
+	if ( time - $data{checkupdate} > 86400 )
+	{
+		$data{checkupdate} = time;
 
-	if ( time - $data{connexitclean} > 3600 )
+		my $update = check_update();
+
+		if ( $update ne -1 && $update ne 0 )
+		{
+			queuemsg(3,$CMD . chr(3) . 4 . chr(2) . "UPDATE" . chr(2) . ": $update" . chr(3));
+		}
+	}
+	elsif ( time - $data{connexitclean} > 3600 )
 	{
 		# time to clean the connexit file
 		my @CONN;
@@ -897,6 +939,12 @@ sub irc_loop
 					queuemsg(3,"$replymode $nick :command: NICK <nickname>");
 					queuemsg(3,"$replymode $nick :note   : change the nickname of the bot.");
 				}
+				elsif ( $line =~ /update/i )
+				{
+					queuemsg(3,"$replymode $nick :command: UPDATE <check>");
+					queuemsg(3,"$replymode $nick :note   : checks for available updates.");
+
+				}
 				elsif ( $line =~ /reload/i )
 				{
 					queuemsg(3,"$replymode $nick :command: RELOAD <cold|warm>");
@@ -919,9 +967,33 @@ sub irc_loop
 				}
 				else
 				{
-					queuemsg(3,"$replymode $nick :command: HELP <nick|raw|dcc|reload>");
+					queuemsg(3,"$replymode $nick :command: HELP <nick|raw|dcc|reload|update>");
 					queuemsg(3,"$replymode $nick :note   : help about commands");
 				}
+			}
+			elsif ( $line =~ s/^update *//i )
+			{
+				if ( $line =~ /check/i )
+				{
+					my $update = check_update();
+					my $output;
+
+					if ( $update eq -1 )
+					{
+						$output = "There was an error checking for updates.";
+					}
+					elsif ( !$update )
+					{
+						$output = "No updates available (running v$version (rev. $revision)).";
+					}
+					else
+					{
+						$output = $update;
+					}
+
+					queuemsg(3,"$replymode $nick :$output");
+				}
+
 			}
 			elsif ( $line =~ s/^reload *//i )
 			{
@@ -1212,7 +1284,7 @@ sub irc_loop
 			# end of WHO
 			if ( !$data{rfs} )
 			{ 
-				queuemsg(2,$CMD . chr(2) . "GenEthic-Enhanced" . chr(2) . " v.$conf{version}, ready.");
+				queuemsg(2,$CMD . chr(2) . "GenEthic-Enhanced" . chr(2) . " v$conf{version}, ready.");
 			}
 			$data{rfs} = 1;
 			if ( !$conf{hubmode} && $conf{locglineaction} !~ /disable/i )
@@ -1359,7 +1431,7 @@ sub irc_loop
 				}
 
 				queuemsg(2,$CMD . "$opernick\!$operhost is now ". chr(31) ."$opermode" . chr(31));
-				if ( !($opernick =~ /^$data{nick}$/i ))
+				if ( !($opernick =~ /^$data{nick}$/i ) && $conf{chaninvite} )
 				{
 					queuemsg(2,"INVITE $opernick $conf{channel}");
 				}
@@ -1627,6 +1699,8 @@ sub load_config
 		{ push(@ECONF,"CHANKEY"); }
 		if ( !( $newconf{chanmode} =~ /^\+.*$/ ) )
 		{ push(@ECONF,"CHANMODE"); }
+		if ( !( $newconf{chaninvite} =~ /^(0|1)$/i ) )
+		{ push(@ECONF,"CHANINVITE"); }
 		if ( !( $newconf{networkdomain} =~ /^(\w|\.|\-|\_)+$/i ) )
 		{ push(@ECONF,"NETWORKDOMAIN"); }
 
