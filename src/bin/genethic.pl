@@ -37,7 +37,7 @@ use LWP::Simple;
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024052101;
+my $revision = 2024052102;
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = "IGNORE";
@@ -1009,7 +1009,7 @@ sub irc_loop
 				if ( $line =~ /warm/i )
 				{
 					%conf = load_config($config);
-					queuemsg(3,$CMD . "Configuration reloaded by $nick");
+					queuemsg(3,$CMD . chr(3) . 4 . "Configuration reloaded by " . chr(2) . $nick . chr(2) . chr(3));
 					queuemsg(3,"$replymode $nick :configuration reloaded.");
 				}
 				elsif ( $line =~ /cold/i )
@@ -1024,7 +1024,7 @@ sub irc_loop
 			}
 			elsif ( $line =~ s/^nick *//i )
 			{
-				if ( $line =~ /^(\w+)$/ )
+				if ( $line =~ /^([^\s])$/ )
 				{
 					queuemsg(3,"NICK $1");
 				}
@@ -1478,6 +1478,15 @@ sub irc_loop
 				my $notify = 0;
 				my $server1 = $1;
 				my $server2 = $2;
+
+				if ( $server1 =~ /$data{servername}/i && exists $data{uplinks}{$server2} )
+				{
+					delete $data{uplinks}{$server2};
+				}
+				elsif ( $server2 =~ /$data{servername}/i && exists $data{uplinks}{$server1} )
+				{
+					delete $data{uplinks}{$server1};
+				}
 
 				if ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i )
 				{
