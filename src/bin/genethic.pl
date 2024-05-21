@@ -888,7 +888,7 @@ sub irc_loop
 			# channel mode
 			if ( $line =~ /^\+o $data{nick}$/i )
 			{
-				if ( $data{lusers}{maxusers} && !$conf{hubmode} ) {
+				if ( $data{lusers}{maxusers} && !$conf{hubmode} && !$conf{multimode} ) {
 					queuemsg(1,"MODE $conf{channel} +l $data{lusers}{maxusers}");
 				}
 
@@ -905,7 +905,7 @@ sub irc_loop
 				}
 				else
 				{
-					if ( $data{lusers}{maxusers} && !$conf{hubmode} ) {
+					if ( $data{lusers}{maxusers} && !$conf{hubmode} && !$conf{multimode} ) {
 						queuemsg(2,"MODE $conf{channel} +l $data{lusers}{maxusers}");
 					}
 
@@ -1491,11 +1491,14 @@ sub irc_loop
 		}
 		elsif ( $line =~ /NOTICE $data{nick} :Highest connection count: \d+ \((\d+) clients\)$/ )
 		{
-			if ( !$conf{hubmode} && !$conf{multimode} )
+			if ( !$conf{hubmode} )
 			{
 				$data{lusers}{maxusers} = $1;
 				$data{status}{lusers} = 1;
-				queuemsg(1,"MODE $conf{channel} +l $data{lusers}{maxusers}");
+				if ( !$conf{multimode} )
+				{
+					queuemsg(1,"MODE $conf{channel} +l $data{lusers}{maxusers}");
+				}
 			}
 		}
 	}
