@@ -37,7 +37,7 @@ use LWP::Simple;
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024052204;
+my $revision = 2024052205;
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = "IGNORE";
@@ -1080,7 +1080,8 @@ sub irc_loop
 			}
 			elsif ( $line =~ s/^nick *//i )
 			{
-				if ( $line =~ /^([^\s])$/ )
+				logdeb("[$line]");
+				if ( $line =~ /^([^\s]+)$/ )
 				{
 					queuemsg(3,"NICK $1");
 				}
