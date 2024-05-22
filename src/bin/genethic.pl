@@ -13,7 +13,7 @@
 # You might want to enable debug, which
 # will send you the IRC traffic to STDOUT
 #
-my $debug = 0;
+my $debug = 1;
 #
 ######################################################
 #                                                    #
@@ -37,7 +37,7 @@ use LWP::Simple;
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024052201;
+my $revision = 2024052202;
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = "IGNORE";
@@ -289,7 +289,10 @@ sub timed_events
 			if ( $userchange =~ /^\d+$/ ) { $userchange = "+$userchange"; }
 	
 			queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Possible attack, $userchange (+$usermore/-$userless) users in $conf{cetimethres} seconds ($data{lusers}{locusers} users)" . chr(3));
-			push_notify($conf{priuserchange}, "USER CHANGE: +$usermore/-$userless");
+			if ( $conf{priuserchange} !~ /off/i )
+			{
+				push_notify($conf{priuserchange}, "USER CHANGE: +$usermore/-$userless");
+			}
 			$data{notice}{lastprint} = time;
 		}
 		$data{notice}{lastcheck} = time;
@@ -826,7 +829,10 @@ sub timed_events
 		if ( $notify )
 		{
 			queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected RPING: $warnmsg" . chr(3));
-			push_notify($conf{prirping}, "RPING: $warnmsg");
+			if ( $conf{pushrping} !~ /off/i )
+			{
+				push_notify($conf{pushrping}, "RPING: $warnmsg");
+			}
 		}
 		$data{status}{rpwarn} = 0;
 	}
@@ -853,7 +859,10 @@ sub timed_events
 		if ( $notify )
 		{
 			queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected SENDQ: $warnmsg" . chr(3));
-			push_notify($conf{prisendq}, "SENDQ: $warnmsg");
+			if ( $conf{pushsendq} !~ /off/i )
+			{
+				push_notify($conf{pushsendq}, "SENDQ: $warnmsg");
+			}
 		}
 
 		$data{status}{sqwarn} = 0;
@@ -1683,8 +1692,6 @@ sub load_config
 				elsif ( $name eq 'pushnetsplit' )
 				{
 					my ($server,$priority) = split(/ /,$value,2);
-					if ( !( $priority =~ /^\-2|\-1|1|2$/i ) )
-					{ $priority = 0; }
 					$newconf{splitlist}{$server} = $priority;
 				}
 				elsif ( $name eq 'dcclisten' )
@@ -1807,14 +1814,14 @@ sub load_config
 		if ( !( $newconf{pushtoken} =~ /^.+$/ ) )
 		{ push(@ECONF,"PUSHTOKEN"); }
 
-		if ( !( $newconf{prilocsplit} =~ /^off|\-2|\-1|0|1|2$/i ) )
-		{ push(@ECONF,"PRILOCSPLIT"); }
-		if ( !( $newconf{prisendq} =~ /^\-2|\-1|0|1|2$/ ) )
-		{ push(@ECONF,"PRISENDQ"); }
-		if ( !( $newconf{prirping} =~ /^\-2|\-1|0|1|2$/ ) )
+		if ( !( $newconf{pushlocsplit} =~ /^off|\-2|\-1|0|1|2$/i ) )
+		{ push(@ECONF,"PUSHLOCSPLIT"); }
+		if ( !( $newconf{pushsendq} =~ /^off|\-2|\-1|0|1|2$/i ) )
+		{ push(@ECONF,"PUSHSENDQ"); }
+		if ( !( $newconf{pushrping} =~ /^off|\-2|\-1|0|1|2$/i ) )
 		{ push(@ECONF,"PRIRPING"); }
-		if ( !( $newconf{priuserchange} =~ /^\-2|\-1|0|1|2$/i ) )
-		{ push(@ECONF,"PRIUSERCHANGE"); }
+		if ( !( $newconf{pushuserchange} =~ /^off|\-2|\-1|0|1|2$/i ) )
+		{ push(@ECONF,"PUSHUSERCHANGE"); }
 
 		if ( !( $newconf{rpingwarn} =~ /^.+$/ ) )
 		{ push(@ECONF,"RPINGWARN"); }
