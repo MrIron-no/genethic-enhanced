@@ -37,7 +37,7 @@ use LWP::Simple;
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024052200;
+my $revision = 2024052201;
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = "IGNORE";
@@ -191,7 +191,7 @@ sub push_notify
         );
 
         if ($response->is_success) {
-            logmsg("Notification sent successfully to $_");
+            logmsg("Notification sent successfully to $_ (pri $priority)");
         } else {
             logmsg("Failed to send notification to $_: " . $response->status_line);
             logmsg("Response content: " . $response->decoded_content);
@@ -1449,7 +1449,7 @@ sub irc_loop
 			}
 			elsif ( $line =~ /^Net junction: (.*) (.*)$/ )
 			{
-				queuemsg(3,$CMD . chr(2) . "NETJOIN" . chr(2) ." $1 $2");
+				queuemsg(3,$CMD . chr(3) . 4 . chr(2) . "NETJOIN" . chr(2) ." $1 $2" . chr(3));
 
 				my $notified = 0;
 				my $server1 = $1;
@@ -1458,6 +1458,7 @@ sub irc_loop
 				if ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i )
 				{
 					push_notify($conf{prilocsplit}, "NETJOIN $server1 $server2");
+					$notified = 1;
 				}
 				else
 				{
@@ -1473,12 +1474,12 @@ sub irc_loop
 
 				if ( $conf{pushnetall} !~ /off/i && !$notified )
 				{
-					push_notify($conf{pushnetall}, "NETQUIT $server1 $server2");
+					push_notify($conf{pushnetall}, "NETJOIN $server1 $server2");
 				}
 			}
 			elsif ( $line =~ /^Net break: (.*) (.*)$/ )
 			{
-				queuemsg(3,$CMD . chr(2) . "NETQUIT" . chr(2) . " $1 $2");
+				queuemsg(3,$CMD . chr(3) . 4 . chr(2) . "NETQUIT" . chr(2) . " $1 $2" . chr(3));
 
 				my $notified = 0;
 				my $server1 = $1;
@@ -1496,6 +1497,7 @@ sub irc_loop
 				if ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i )
 				{
 					push_notify($conf{prilocsplit}, "NETQUIT $server1 $server2");
+					$notified = 1;
 				}
 				else
 				{
@@ -1681,6 +1683,8 @@ sub load_config
 				elsif ( $name eq 'pushnetsplit' )
 				{
 					my ($server,$priority) = split(/ /,$value,2);
+					if ( !( $priority =~ /^\-2|\-1|1|2$/i ) )
+					{ $priority = 0; }
 					$newconf{splitlist}{$server} = $priority;
 				}
 				elsif ( $name eq 'dcclisten' )
@@ -1705,9 +1709,9 @@ sub load_config
 		{ push(@ECONF,"SERVERPORT"); }
 		if ( !( $newconf{vhost} =~ /^(\d+\.\d+\.\d+\.\d+|)$/ ) )
 		{ push(@ECONF,"VHOST"); }
-		if ( !( $newconf{hubmode} =~ /^(0|1)$/i ) )
+		if ( !( $newconf{hubmode} =~ /^0|1$/i ) )
 		{ push(@ECONF,"HUBMODE"); }
-		if ( !( $newconf{multimode} =~ /^(0|1)$/i ) )
+		if ( !( $newconf{multimode} =~ /^0|1$/i ) )
 		{ push(@ECONF,"MULTIMODE"); }
 		if ( !( $newconf{timeout} =~ /^\d+$/ ) )
 		{ push(@ECONF,"TIMEOUT"); }
@@ -1729,12 +1733,12 @@ sub load_config
 		{ push(@ECONF,"CHANKEY"); }
 		if ( !( $newconf{chanmode} =~ /^\+.*$/ ) )
 		{ push(@ECONF,"CHANMODE"); }
-		if ( !( $newconf{chaninvite} =~ /^(0|1)$/i ) )
+		if ( !( $newconf{chaninvite} =~ /^0|1$/i ) )
 		{ push(@ECONF,"CHANINVITE"); }
 		if ( !( $newconf{networkdomain} =~ /^(\w|\.|\-|\_)+$/i ) )
 		{ push(@ECONF,"NETWORKDOMAIN"); }
 
-		if ( !( $newconf{trafficreport} =~ /^(0|1)$/i ) )
+		if ( !( $newconf{trafficreport} =~ /^0|1$/i ) )
 		{ push(@ECONF,"TRAFFICREPORT"); }
 
 		if ( $newconf{operfailmax} =~ /^\d+$/ )
@@ -1742,7 +1746,7 @@ sub load_config
 			if ( $newconf{operfailmax} > 0 ) {
 				if ( !( $newconf{operfailwarn} =~ /^.+$/ ) )
 				{ push(@ECONF,"OPERFAILWARN"); }
-				if ( !( $newconf{operfailaction} =~ /^(KILL|GLINE)$/i ) )
+				if ( !( $newconf{operfailaction} =~ /^KILL|GLINE$/i ) )
 				{ push(@ECONF,"OPERFAILACTION"); }
 				if (
 					$newconf{operfailaction} =~ /GLINE/i
@@ -1755,13 +1759,13 @@ sub load_config
 			}
 		} else { push(@ECONF,"OPERFAILMAX"); }
 
-		if ( !( $newconf{reportenable} =~ /^(0|1)$/i ) )
+		if ( !( $newconf{reportenable} =~ /^0|1$/ ) )
 		{ push(@ECONF,"REPORTENABLE"); }
 
-		if ( !( $newconf{reportcmd} =~ /^(PRIVMSG|ONOTICE)$/i ) )
+		if ( !( $newconf{reportcmd} =~ /^PRIVMSG|ONOTICE$/i ) )
 		{ push(@ECONF,"REPORTCMD"); }
 
-		if ( !( $newconf{locglineaction} =~ /^(GLINE|WARN|DISABLE)$/i ) )
+		if ( !( $newconf{locglineaction} =~ /^GLINE|WARN|DISABLE$/i ) )
 		{ push(@ECONF,"LOCGLINEACTION"); }
 		if ( !( $newconf{rnameglinetime} =~ /^\d+$/ ) )
 		{
@@ -1791,8 +1795,11 @@ sub load_config
 		if ( !( $newconf{rname} =~ /^.+$/ ) )
 		{ push(@ECONF,"RNAME"); }
 
-		if ( !( $newconf{pushenable} =~ /^0|1$/i ) )
+		if ( !( $newconf{pushenable} =~ /^0|1$/ ) )
 		{ push(@ECONF,"PUSHENABLE"); }
+
+		if ( !( $newconf{pushnetsplit} =~ /^(\w|\.)+ \-2|\-1|0|1|2$/i ) )
+		{ push(@ECONF,"PUSHNETSPLIT"); }
 
 		if ( !( $newconf{pushnetall} =~ /^off|\-2|\-1|0|1|2$/i ) )
 		{ push(@ECONF,"PUSHNETALL"); }
@@ -1800,13 +1807,13 @@ sub load_config
 		if ( !( $newconf{pushtoken} =~ /^.+$/ ) )
 		{ push(@ECONF,"PUSHTOKEN"); }
 
-		if ( !( $newconf{prilocsplit} =~ /^off|-2|-1|0|1|2$/i ) )
+		if ( !( $newconf{prilocsplit} =~ /^off|\-2|\-1|0|1|2$/i ) )
 		{ push(@ECONF,"PRILOCSPLIT"); }
-		if ( !( $newconf{prisendq} =~ /^\-2|\-1|0|1|2$/i ) )
+		if ( !( $newconf{prisendq} =~ /^\-2|\-1|0|1|2$/ ) )
 		{ push(@ECONF,"PRISENDQ"); }
-		if ( !( $newconf{prirping} =~ /^\-2|\-1|0|1|2$/i ) )
+		if ( !( $newconf{prirping} =~ /^\-2|\-1|0|1|2$/ ) )
 		{ push(@ECONF,"PRIRPING"); }
-		if ( !( $newconf{priuserchange} =~ /^(\-2|\-1|0|1|2)$/i ) )
+		if ( !( $newconf{priuserchange} =~ /^\-2|\-1|0|1|2$/i ) )
 		{ push(@ECONF,"PRIUSERCHANGE"); }
 
 		if ( !( $newconf{rpingwarn} =~ /^.+$/ ) )
