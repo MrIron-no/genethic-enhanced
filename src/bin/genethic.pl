@@ -13,7 +13,7 @@
 # You might want to enable debug, which
 # will send you the IRC traffic to STDOUT
 #
-my $debug = 1;
+my $debug = 0;
 #
 ######################################################
 #                                                    #
@@ -37,7 +37,7 @@ use LWP::Simple;
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024052203;
+my $revision = 2024052204;
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = "IGNORE";
@@ -258,7 +258,8 @@ sub timed_events
 
 		$data{connexitclean} = time;
 	}
-	if ( time - $data{notice}{lastcheck} >= 0 && time - $data{notice}{lastprint} >= $conf{cetimethres} && !$conf{hubmode} )
+#	if ( time - $data{notice}{lastcheck} >= 0 && time - $data{notice}{lastprint} >= $conf{cetimethres} && !$conf{hubmode} )
+	if ( time - $data{notice}{lastcheck} >= $conf{cetimethres} && !$conf{hubmode} )
 	{
 		my $time;
 		my $userchange = 0;
@@ -284,17 +285,61 @@ sub timed_events
 			}
 		}
 
-		if ( abs($userchange) >= $conf{ceuserthres} )
+		# Possible attack - first cycle.
+		if ( abs($userchange) >= $conf{ceuserthres} && !$data{notice}{cycles} )
 		{
 			if ( $userchange =~ /^\d+$/ ) { $userchange = "+$userchange"; }
 	
 			queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Possible attack, $userchange (+$usermore/-$userless) users in $conf{cetimethres} seconds ($data{lusers}{locusers} users)" . chr(3));
+
 			if ( $conf{pushuserchange} !~ /off/i )
 			{
 				push_notify($conf{pushuserchange}, "USER CHANGE: +$usermore/-$userless");
 			}
-			$data{notice}{lastprint} = time;
+#			$data{notice}{lastprint} = time;
+			$data{notice}{cycles} = 1;
 		}
+		# Possible attach still ongoing, new cycle. 
+		elsif ( abs($userchange) >= $conf{ceuserthres} && $data{notice}{cycles} )
+		{
+#			$data{notice}{lastprint} = time;
+			$data{notice}{usermore} += $usermore;
+			$data{notice}{userless} += $userless;
+			$data{notice}{userchange} += $userchange;
+			$data{notice}{cycles}++;
+		}
+		# No more user changes above threshold. Possible attack has stopped. Summarise and write to log.
+		elsif ( abs($userchange) <= $conf{ceuserthres} && $data{notice}{cycles} )
+		{
+			if ( $data{notice}{cycles} > 1 )
+			{
+				if ( $data{notice}{userchange} =~ /^\d+$/ ) { $data{notice}{userchange} = "+$data{notice}{userchange}"; }
+				queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Possible attack " . chr(31) . "ended" . chr(31) . ", $data{notice}{userchange} (+$data{notice}{usermore}/-$data{notice}{userless}) users in " . $conf{cetimethres} * $data{notice}{cycles} . " seconds ($data{lusers}{locusers} users)" . chr(3));
+			}
+
+			open(CONN,"$conf{path}/var/connexit.txt");
+			open(ATTACKLOG,">>$conf{path}/var/attack.txt");
+			print ATTACKLOG "Possible attack ended on " . unix2date(time) . " and lasted for " . $conf{cetimethres} * $data{notice}{cycles} . " seconds.\n";
+
+			while(<CONN>)
+			{
+				chop;
+				if ( /^(\d+) (.*)$/ )
+				{
+					if ( $1 >= time - ( $conf{cetimethres} * $data{notice}{cycles} ) )
+					{ print ATTACKLOG unix2date($1) . " $2\n"; }
+				}
+			}
+			print ATTACKLOG "\n";
+			close(CONN);
+			close(ATTACKLOG);
+
+			$data{notice}{cycles} = 0;
+			$data{notice}{usermore} = 0;
+			$data{notice}{userless} = 0;
+			$data{notice}{userchange} = 0;
+		}
+
 		$data{notice}{lastcheck} = time;
 	}
 	
@@ -1466,7 +1511,7 @@ sub irc_loop
 
 				if ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i )
 				{
-					push_notify($conf{prilocsplit}, "NETJOIN $server1 $server2");
+					push_notify($conf{pushlocsplit}, "NETJOIN $server1 $server2");
 					$notified = 1;
 				}
 				else
@@ -1505,7 +1550,7 @@ sub irc_loop
 
 				if ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i )
 				{
-					push_notify($conf{prilocsplit}, "NETQUIT $server1 $server2");
+					push_notify($conf{pushlocsplit}, "NETQUIT $server1 $server2");
 					$notified = 1;
 				}
 				else
@@ -1819,7 +1864,7 @@ sub load_config
 		if ( !( $newconf{pushsendq} =~ /^off|\-2|\-1|0|1|2$/i ) )
 		{ push(@ECONF,"PUSHSENDQ"); }
 		if ( !( $newconf{pushrping} =~ /^off|\-2|\-1|0|1|2$/i ) )
-		{ push(@ECONF,"PRIRPING"); }
+		{ push(@ECONF,"PUSHPING"); }
 		if ( !( $newconf{pushuserchange} =~ /^off|\-2|\-1|0|1|2$/i ) )
 		{ push(@ECONF,"PUSHUSERCHANGE"); }
 
