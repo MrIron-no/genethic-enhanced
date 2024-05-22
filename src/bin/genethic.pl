@@ -37,7 +37,7 @@ use LWP::Simple;
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024052102;
+my $revision = 2024052200;
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = "IGNORE";
@@ -169,11 +169,12 @@ sub check_update()
 	return 0;
 }
 
-sub push_notify($)
+sub push_notify
 {
     if ( !$conf{pushenable} ) { return 0; }
 
-    my $message = $_[0];
+    my $priority = $_[0];
+    my $message = $_[1];
     my $url = 'https://api.pushover.net/1/messages.json';
     my $ua = LWP::UserAgent->new();
 
@@ -184,6 +185,7 @@ sub push_notify($)
             [
                 "token" =>  $conf{pushtoken},
                 "user" =>  $_,
+		"priority" => $priority,
                 "message" => $message,
             ]
         );
@@ -287,7 +289,7 @@ sub timed_events
 			if ( $userchange =~ /^\d+$/ ) { $userchange = "+$userchange"; }
 	
 			queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Possible attack, $userchange (+$usermore/-$userless) users in $conf{cetimethres} seconds ($data{lusers}{locusers} users)" . chr(3));
-			push_notify("USER CHANGE: +$usermore/-$userless");
+			push_notify($conf{priuserchange}, "USER CHANGE: +$usermore/-$userless");
 			$data{notice}{lastprint} = time;
 		}
 		$data{notice}{lastcheck} = time;
@@ -824,7 +826,7 @@ sub timed_events
 		if ( $notify )
 		{
 			queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected RPING: $warnmsg" . chr(3));
-			push_notify("RPING: $warnmsg");
+			push_notify($conf{prirping}, "RPING: $warnmsg");
 		}
 		$data{status}{rpwarn} = 0;
 	}
@@ -851,7 +853,7 @@ sub timed_events
 		if ( $notify )
 		{
 			queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected SENDQ: $warnmsg" . chr(3));
-			push_notify("SENDQ: $warnmsg");
+			push_notify($conf{prisendq}, "SENDQ: $warnmsg");
 		}
 
 		$data{status}{sqwarn} = 0;
@@ -1449,33 +1451,36 @@ sub irc_loop
 			{
 				queuemsg(3,$CMD . chr(2) . "NETJOIN" . chr(2) ." $1 $2");
 
-				my $notify = 0;
+				my $notified = 0;
 				my $server1 = $1;
 				my $server2 = $2;
 
 				if ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i )
 				{
-					$notify = 1;
+					push_notify($conf{prilocsplit}, "NETQUIT $server1 $server2");
 				}
-
-				foreach ( @{$conf{splitlist}} )
+				else
 				{
-					if ( $server1 =~ /$_/i || $server2 =~ /$_/i )
+					foreach ( keys %{$conf{splitlist}} )
 					{
-						$notify = 1;
+						if ( $server1 =~ /$_/i || $server2 =~ /$_/i )
+						{
+							push_notify($conf{splitlist}{$_}, "NETQUIT $server1 $server2");
+							$notified = 1;
+						}
 					}
 				}
 
-				if ( $notify || $conf{pushnetall} )
+				if ( $conf{pushnetall} !~ /off/i && !$notified )
 				{
-					push_notify("NETJOIN $server1 $server2");
+					push_notify($conf{pushnetall}, "NETQUIT $server1 $server2");
 				}
 			}
 			elsif ( $line =~ /^Net break: (.*) (.*)$/ )
 			{
 				queuemsg(3,$CMD . chr(2) . "NETQUIT" . chr(2) . " $1 $2");
 
-				my $notify = 0;
+				my $notified = 0;
 				my $server1 = $1;
 				my $server2 = $2;
 
@@ -1490,20 +1495,23 @@ sub irc_loop
 
 				if ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i )
 				{
-					$notify = 1;
+					push_notify($conf{prilocsplit}, "NETQUIT $server1 $server2");
 				}
-
-				foreach ( @{$conf{splitlist}} )
+				else
 				{
-					if ( $server1 =~ /$_/i || $server2 =~ /$_/i )
+					foreach ( keys %{$conf{splitlist}} )
 					{
-						$notify = 1;
+						if ( $server1 =~ /$_/i || $server2 =~ /$_/i )
+						{
+							push_notify($conf{splitlist}{$_}, "NETQUIT $server1 $server2");
+							$notified = 1;
+						}
 					}
 				}
 
-				if ( $notify || $conf{pushnetall} )
+				if ( $conf{pushnetall} !~ /off/i && !$notified )
 				{
-					push_notify("NETQUIT $server1 $server2");
+					push_notify($conf{pushnetall}, "NETQUIT $server1 $server2");
 				}
 			}
 		}
@@ -1672,7 +1680,9 @@ sub load_config
 				}
 				elsif ( $name eq 'pushnetsplit' )
 				{
-					push(@{$newconf{splitlist}},$value);
+					my ($server,$priority) = split(/ /,$value,2);
+					$newconf{splitlist}{$server} = $priority;
+					logdeb("PUSHNETSPLIT: server: $server priority: $priority");
 				}
 				elsif ( $name eq 'dcclisten' )
 				{
@@ -1782,14 +1792,23 @@ sub load_config
 		if ( !( $newconf{rname} =~ /^.+$/ ) )
 		{ push(@ECONF,"RNAME"); }
 
-		if ( !( $newconf{pushenable} =~ /^(0|1)$/i ) )
+		if ( !( $newconf{pushenable} =~ /^0|1$/i ) )
 		{ push(@ECONF,"PUSHENABLE"); }
 
-		if ( !( $newconf{pushnetall} =~ /^(0|1)$/i ) )
+		if ( !( $newconf{pushnetall} =~ /^off|\-2|\-1|0|1|2$/i ) )
 		{ push(@ECONF,"PUSHNETALL"); }
 
 		if ( !( $newconf{pushtoken} =~ /^.+$/ ) )
 		{ push(@ECONF,"PUSHTOKEN"); }
+
+		if ( !( $newconf{prilocsplit} =~ /^off|-2|-1|0|1|2$/i ) )
+		{ push(@ECONF,"PRILOCSPLIT"); }
+		if ( !( $newconf{prisendq} =~ /^\-2|\-1|0|1|2$/i ) )
+		{ push(@ECONF,"PRISENDQ"); }
+		if ( !( $newconf{prirping} =~ /^\-2|\-1|0|1|2$/i ) )
+		{ push(@ECONF,"PRIRPING"); }
+		if ( !( $newconf{priuserchange} =~ /^(\-2|\-1|0|1|2)$/i ) )
+		{ push(@ECONF,"PRIUSERCHANGE"); }
 
 		if ( !( $newconf{rpingwarn} =~ /^.+$/ ) )
 		{ push(@ECONF,"RPINGWARN"); }
