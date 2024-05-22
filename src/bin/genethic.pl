@@ -1457,7 +1457,7 @@ sub irc_loop
 
 				if ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i )
 				{
-					push_notify($conf{prilocsplit}, "NETQUIT $server1 $server2");
+					push_notify($conf{prilocsplit}, "NETJOIN $server1 $server2");
 				}
 				else
 				{
@@ -1465,7 +1465,7 @@ sub irc_loop
 					{
 						if ( $server1 =~ /$_/i || $server2 =~ /$_/i )
 						{
-							push_notify($conf{splitlist}{$_}, "NETQUIT $server1 $server2");
+							push_notify($conf{splitlist}{$_}, "NETJOIN $server1 $server2");
 							$notified = 1;
 						}
 					}
@@ -1682,7 +1682,6 @@ sub load_config
 				{
 					my ($server,$priority) = split(/ /,$value,2);
 					$newconf{splitlist}{$server} = $priority;
-					logdeb("PUSHNETSPLIT: server: $server priority: $priority");
 				}
 				elsif ( $name eq 'dcclisten' )
 				{
