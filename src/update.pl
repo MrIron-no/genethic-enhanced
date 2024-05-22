@@ -57,6 +57,7 @@ apply_updates();
 clean_up();
 
 print("Done.\n");
+exit(0);
 
 # Fetch update from GitHub
 sub fetch_update
