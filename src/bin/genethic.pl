@@ -13,7 +13,7 @@
 # You might want to enable debug, which
 # will send you the IRC traffic to STDOUT
 #
-my $debug = 0;
+my $debug = 1;
 #
 ######################################################
 #                                                    #
@@ -37,7 +37,7 @@ use LWP::Simple;
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024052202;
+my $revision = 2024052203;
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = "IGNORE";
@@ -289,9 +289,9 @@ sub timed_events
 			if ( $userchange =~ /^\d+$/ ) { $userchange = "+$userchange"; }
 	
 			queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Possible attack, $userchange (+$usermore/-$userless) users in $conf{cetimethres} seconds ($data{lusers}{locusers} users)" . chr(3));
-			if ( $conf{priuserchange} !~ /off/i )
+			if ( $conf{pushuserchange} !~ /off/i )
 			{
-				push_notify($conf{priuserchange}, "USER CHANGE: +$usermore/-$userless");
+				push_notify($conf{pushuserchange}, "USER CHANGE: +$usermore/-$userless");
 			}
 			$data{notice}{lastprint} = time;
 		}
