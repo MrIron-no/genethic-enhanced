@@ -13,7 +13,7 @@
 # You might want to enable debug, which
 # will send you the IRC traffic to STDOUT
 #
-my $debug = 1;
+my $debug = 0;
 #
 ######################################################
 #                                                    #
