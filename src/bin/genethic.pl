@@ -33,14 +33,16 @@ use File::Copy;
 use LWP::UserAgent;
 use LWP::Protocol::https;
 use LWP::Simple;
+use English qw(-no_match_vars);
 
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024052205;
+my $revision = 2024052300;
 
 $SIG{PIPE} = "IGNORE";
-$SIG{CHLD} = "IGNORE";
+#$SIG{CHLD} = "IGNORE";
+$SIG{CHLD} = 'DEFAULT';
 
 my %server;
 my %data;
@@ -169,6 +171,44 @@ sub check_update()
 	return 0;
 }
 
+sub do_restart
+{
+	my $sock = $server{socket};
+	print $sock "QUIT :" . $_[0] . "\r\n";
+
+	sleep(3);
+	exec($EXECUTABLE_NAME, $PROGRAM_NAME, @ARGV);
+	exit;
+}
+
+sub apply_update
+{
+	# Preparing
+	system("mkdir -p " . $conf{path} . "/.update/");
+	my $file = $conf{path} . "/.update/update.pl";
+
+	# Downloading update script
+	my $rc = getstore('https://raw.githubusercontent.com/MrIron-no/genethic-enhanced/master/src/update.pl', $file);
+	if ( is_error($rc) )
+	{ 
+		logmsg("UPDATE: Error when downloading update script: $rc");
+		return 0;
+	}
+	system("chmod +x " . $file);
+
+	# Running update script.
+	if ( system($file . " " . $config) )
+	{
+		logmsg("UPDATE: Error when running update script: $!");
+		return 0;
+	}
+	else
+	{
+		logmsg("UPDATE: Successfully updated GenEthic-Enhanced.");
+		return 1;
+	}
+}
+
 sub push_notify
 {
     if ( !$conf{pushenable} ) { return 0; }
@@ -229,7 +269,7 @@ sub timed_events
 
 		if ( $update ne -1 && $update ne 0 )
 		{
-			queuemsg(3,$CMD . chr(3) . 4 . chr(2) . "UPDATE" . chr(2) . ": $update" . chr(3));
+			queuemsg(3,$CMD . chr(3) . 4 . chr(2) . "UPDATE" . chr(2) . ": $update - run " . chr(31) . "update install" . chr(31) . " to update" . chr(3));
 		}
 	}
 	elsif ( time - $data{connexitclean} > 3600 )
@@ -1006,8 +1046,9 @@ sub irc_loop
 				}
 				elsif ( $line =~ /update/i )
 				{
-					queuemsg(3,"$replymode $nick :command: UPDATE <check>");
-					queuemsg(3,"$replymode $nick :note   : checks for available updates.");
+					queuemsg(3,"$replymode $nick :command: UPDATE <check|install>");
+					queuemsg(3,"$replymode $nick :note   : 'check' checks for available updates.");
+					queuemsg(3,"$replymode $nick :       : 'install' installs available updates.");
 
 				}
 				elsif ( $line =~ /reload/i )
@@ -1036,29 +1077,53 @@ sub irc_loop
 					queuemsg(3,"$replymode $nick :note   : help about commands");
 				}
 			}
-			elsif ( $line =~ s/^update *//i )
+			elsif ( $line =~ /^update (check|install)/i )
 			{
+				my $update = check_update();
+				my $output;
+				my $hasupdate = 0;
+
+				if ( $update eq -1 )
+				{
+					$output = "There was an error checking for updates.";
+				}
+				elsif ( !$update )
+				{
+					$output = "No updates available (running v$version (rev. $revision)).";
+				}
+				else
+				{
+					$output = $update . " - run " . chr(31) . "update install" . chr(31) . " to update.";
+					$hasupdate = 1;
+				}
+
 				if ( $line =~ /check/i )
 				{
-					my $update = check_update();
-					my $output;
+					queuemsg(3,"$replymode $nick :$output");
+				}
+				elsif ( $line =~ /install/i )
+				{
+					if ( $hasupdate )
+					{
+						my $sock = $server{socket};
+						print $sock "$replymode $nick :$output\r\n";
+						print $sock "$replymode $nick :Attempting to install...\r\n";
 
-					if ( $update eq -1 )
-					{
-						$output = "There was an error checking for updates.";
-					}
-					elsif ( !$update )
-					{
-						$output = "No updates available (running v$version (rev. $revision)).";
+						if ( !apply_update() )
+						{
+							queuemsg(3,"$replymode $nick :There was an error when applying the update..");
+						}
+						else
+						{
+							print $sock $CMD . chr(3) . 4 . "Update installed by " . chr(2) . $nick . chr(2) . " -- restarting..." . chr(3) . "\r\n";
+							do_restart("I'm being overhauled.");
+						}
 					}
 					else
 					{
-						$output = $update;
+						queuemsg(3,"$replymode $nick :$output");
 					}
-
-					queuemsg(3,"$replymode $nick :$output");
 				}
-
 			}
 			elsif ( $line =~ s/^reload *//i )
 			{
@@ -1080,7 +1145,6 @@ sub irc_loop
 			}
 			elsif ( $line =~ s/^nick *//i )
 			{
-				logdeb("[$line]");
 				if ( $line =~ /^([^\s]+)$/ )
 				{
 					queuemsg(3,"NICK $1");
