@@ -10,6 +10,8 @@ my %conf;
 my $files;
 my $gitraw = 'https://raw.githubusercontent.com/MrIron-no/genethic-enhanced/master/src';
 
+$SIG{CHLD} = 'DEFAULT';
+
 # Checking arguments
 if ( $ARGV[0] )
 {
