@@ -98,7 +98,7 @@ sub load_config
 			}
 			elsif ( $name eq 'admin' )
 			{
-				push(@{$newconf{admin}},$value);
+				push(@{$conf{admin}},$value);
 			}
 			elsif ( $name eq 'rnameexcept' )
 			{
