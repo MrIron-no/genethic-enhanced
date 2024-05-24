@@ -96,6 +96,10 @@ sub load_config
 			{
 				push(@{$conf{permitip}},$value);
 			}
+			elsif ( $name eq 'admin' )
+			{
+				push(@{$newconf{admin}},$value);
+			}
 			elsif ( $name eq 'rnameexcept' )
 			{
 				push(@{$conf{rnameexcept}},$value);
@@ -159,6 +163,14 @@ sub merge_config
 
 				foreach ( @{$conf{permitip}} )
 				{ print NEWCONFIG "PERMITIP	$_\n"; }
+			}
+			elsif ( $name eq 'admin' )
+			{
+				if ( $skip{$name} ) { next; }
+				$skip{$name} = 1;
+
+				foreach ( @{$conf{admin}} )
+				{ print NEWCONFIG "ADMIN		$_\n"; }
 			}
 			elsif ( $name eq 'rnameexcept' )
 			{

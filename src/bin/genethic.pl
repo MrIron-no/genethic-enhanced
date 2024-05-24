@@ -38,7 +38,7 @@ use English qw(-no_match_vars);
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024052300;
+my $revision = 2024052400;
 
 $SIG{PIPE} = "IGNORE";
 #$SIG{CHLD} = "IGNORE";
@@ -207,6 +207,22 @@ sub apply_update
 		logmsg("UPDATE: Successfully updated GenEthic-Enhanced.");
 		return 1;
 	}
+}
+
+sub is_admin
+{
+	my $account = $data{account}{$_[0]};
+
+	foreach ( @{$conf{admins}} )
+	{
+		if ( $_ eq $account )
+		{ return 1; }
+	}
+
+	if ( !@{$conf{admins}} )
+	{ return 1; }
+
+	return 0;
 }
 
 sub push_notify
@@ -853,6 +869,13 @@ sub timed_events
 		}
 	}
 
+	if ( ( time - $data{time}{account} ) >= 300 )
+	{
+		queuemsg(1,"WHO $conf{channel} xco%na");
+		delete $data{account};
+		$data{time}{account} = time;
+	}
+
 	if ( ( ( time - $data{time}{who} ) >= ( $conf{pollinterval} - 30 ) ) && !$conf{hubmode} && $conf{locglineaction} !~ /disable/i )
 	{
 		if ( $data{status}{who} )
@@ -977,8 +1000,9 @@ sub irc_loop
 				{
 					queuemsg(1,"MODE $conf{channel} +o $data{nick}");
 				}
-				queuemsg(1,"WHO $conf{channel} xc%nif");
+				queuemsg(1,"WHO $conf{channel} xc%nifa");
 				delete $data{oper};
+				delete $data{account};
 			}
 			else
 			{
@@ -1077,7 +1101,7 @@ sub irc_loop
 					queuemsg(3,"$replymode $nick :note   : help about commands");
 				}
 			}
-			elsif ( $line =~ /^update (check|install)/i )
+			elsif ( $line =~ /^update (check|install)/i && is_admin($nick) )
 			{
 				my $update = check_update();
 				my $output;
@@ -1125,7 +1149,7 @@ sub irc_loop
 					}
 				}
 			}
-			elsif ( $line =~ s/^reload *//i )
+			elsif ( $line =~ s/^reload *//i && is_admin($nick) )
 			{
 				if ( $line =~ /warm/i )
 				{
@@ -1143,7 +1167,7 @@ sub irc_loop
 					queuemsg(3,"$replymode $nick :error: missing or incorrect argument(s), try 'help reload'");
 				}
 			}
-			elsif ( $line =~ s/^nick *//i )
+			elsif ( $line =~ s/^nick *//i && is_admin($nick) )
 			{
 				if ( $line =~ /^([^\s]+)$/ )
 				{
@@ -1206,7 +1230,7 @@ sub irc_loop
 					}
 				}
 			}
-			elsif ( $line =~ s/^raw *//i )
+			elsif ( $line =~ s/^raw *//i && is_admin($nick) )
 			{
 				if ( $line =~ /^(.+)$/ )
 				{
@@ -1240,13 +1264,17 @@ sub irc_loop
 			{
 				$data{oper}{$newnick} = $data{oper}{$nick};
 				delete $data{oper}{$nick};
-				$data{offset}{$newnick} = $data{offset}{$newnick};
+				$data{offset}{$newnick} = $data{offset}{$nick};
 				delete $data{offset}{$nick};
+				$data{account}{$newnick} = $data{account}{$nick};
+				delete $data{account}{$nick};
 			}
 		}
 		elsif ( $line =~ /^PART|QUIT/ )
 		{
 			delete $data{oper}{$nick};
+			delete $data{account}{$nick};
+			delete $data{offset}{$nick};
 		}
 
 	}
@@ -1331,6 +1359,10 @@ sub irc_loop
 			$data{oper}{$1} = 1;
 			queuemsg(2,"MODE $conf{channel} +o $1");
 		}
+		elsif ( $line =~ /^330 $data{nick} (.*) (.*) :is logged in as$/i )
+		{
+			$data{account}{$1} = $2;
+		}
 		elsif ( $line =~ /^340 $data{nick} :(.*)=(.*)@((\.|\:|[a-f]|[0-9])+)$/i )
 		{
 				my $nick = $1;
@@ -1380,12 +1412,20 @@ sub irc_loop
 				print WHO "$1	$3	$4	$6	$10	$11	$12	$8\n";
 				close(WHO);
 			}
-			elsif ( $line =~ /^((\d|\.|\:|\w)+) ((\\|\||\`|\[|\]|\^|\{|\}|\-|\_|\w)+) ((\*|\@|\w)+)$/i )
+			elsif ( $line =~ /^([^\s]+) (\w+)$/i )
+			{
+				if ( $2 ne 0 )
+				{
+					$data{account}{$1} = $2;
+				}
+			}
+			elsif ( $line =~ /^((\.|\:|\w)+) ([^\s]+) ((\*|\@|\w)+) (\w+)$/i )
 			{
 				# channel who
 				my $ip = $1;
 				my $opernick = $3;
-				my $modes = $5;
+				my $modes = $4;
+				my $account = $6;
 				my $permitted = 0;
 
 				foreach ( @{$conf{ippermit}} )
@@ -1400,9 +1440,12 @@ sub irc_loop
 				{
 					# is oper
 					$data{oper}{$opernick} = 1;
+
+					if ( $account ne "0" )
+					{ $data{account}{$opernick} = $account; }
 				}
 				elsif ( !$permitted )
-				{ 
+				{
 					# is not oper nor permitted
 					delete $data{oper}{$opernick};
 					queuemsg(2,"KICK $conf{channel} $opernick :You have no right to be in this channel!");
@@ -1417,6 +1460,7 @@ sub irc_loop
 				queuemsg(2,$CMD . chr(2) . "GenEthic-Enhanced" . chr(2) . " v$conf{version}, ready.");
 			}
 			$data{rfs} = 1;
+
 			if ( !$conf{hubmode} && $conf{locglineaction} !~ /disable/i )
 			{
 				$data{status}{who} = 1;
@@ -1782,6 +1826,10 @@ sub load_config
 						push(@{$newconf{nicks}},$_);
 					}
 					$newconf{nickpos} = 0;
+				}
+				elsif ( $name eq 'admin' )
+				{
+					push(@{$newconf{admins}},$value);
 				}
 				elsif ( $name eq 'permitip' )
 				{
