@@ -24,12 +24,14 @@ my $debug = 0;
 #
 
 use strict;
-use File::Basename;
 use IO::Socket;
 use POSIX "setsid";
 use Time::Local;
 use Time::HiRes qw (sleep);
+use File::Basename;
 use File::Copy;
+use File::Path qw(make_path);
+use File::chmod qw(chmod);
 use LWP::UserAgent;
 use LWP::Protocol::https;
 use LWP::Simple;
@@ -38,10 +40,9 @@ use English qw(-no_match_vars);
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024052400;
+my $revision = 2024060200;
 
 $SIG{PIPE} = "IGNORE";
-#$SIG{CHLD} = "IGNORE";
 $SIG{CHLD} = 'DEFAULT';
 
 my %server;
@@ -173,40 +174,72 @@ sub check_update()
 
 sub do_restart
 {
-	my $sock = $server{socket};
-	print $sock "QUIT :" . $_[0] . "\r\n";
+	my $execpath = $conf{path} . "/bin/" . ( split '/', $PROGRAM_NAME )[ -1 ];
+	$execpath =~ s/\/\//\//;
 
-	sleep(3);
-	exec($EXECUTABLE_NAME, $PROGRAM_NAME, @ARGV);
-	exit;
+	my $configpath = $conf{path} . "/etc/" . ( split '/', $config )[ -1 ];
+	$configpath =~ s/\/\//\//;
+
+	if ( system($execpath . " " . $configpath) )
+	{
+		logmsg("Error when starting new process: $!");
+		return 0;
+	}
+	else
+	{
+		my $sock = $server{socket};
+		print $sock "QUIT :" . $_[0] . "\r\n";
+		sleep(5);
+
+		logmsg("Successfully started GenEthic-Enhanced.");
+		kill 9, $$;
+	}
 }
 
 sub apply_update
 {
+	my $retme = 1;
+
 	# Preparing
-	system("mkdir -p " . $conf{path} . "/.update/");
+	make_path($conf{path} . "/.update/");
 	my $file = $conf{path} . "/.update/update.pl";
 
 	# Downloading update script
 	my $rc = getstore('https://raw.githubusercontent.com/MrIron-no/genethic-enhanced/master/src/update.pl', $file);
 	if ( is_error($rc) )
 	{ 
-		logmsg("UPDATE: Error when downloading update script: $rc");
+		logmsg("Error when downloading update script: $rc");
 		return 0;
 	}
-	system("chmod +x " . $file);
+	chmod("+x", $file);
 
 	# Running update script.
-	if ( system($file . " " . $config) )
+	my $chpid;
+	if ( !defined($chpid = fork()) )
 	{
-		logmsg("UPDATE: Error when running update script: $!");
+		$retme = 0;
 		return 0;
+	}
+	elsif ( $chpid == 0 )
+	{
+		if ( system($file . " " . $config) )
+		{
+			logmsg("Error when running update script: $!");
+			$retme = 0;
+		}
+		else
+		{
+			logmsg("Successfully updated GenEthic-Enhanced.");
+			exit;
+		}
 	}
 	else
 	{
-		logmsg("UPDATE: Successfully updated GenEthic-Enhanced.");
-		return 1;
+		waitpid($chpid, 0);
 	}
+	1;
+
+	return $retme;
 }
 
 sub is_admin
@@ -223,6 +256,15 @@ sub is_admin
 	{ return 1; }
 
 	return 0;
+}
+
+sub send_warning
+{
+	queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ":" . $_[0] . chr(3));
+
+	open(WARNFILE,">>$conf{path}/var/warnings.txt");
+	print WARNFILE time . " " . $_[0];
+	close(WARNFILE);
 }
 
 sub push_notify
@@ -346,7 +388,7 @@ sub timed_events
 		{
 			if ( $userchange =~ /^\d+$/ ) { $userchange = "+$userchange"; }
 	
-			queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Possible attack, $userchange (+$usermore/-$userless) users in $conf{cetimethres} seconds ($data{lusers}{locusers} users)" . chr(3));
+			send_warning("Possible attack, $userchange (+$usermore/-$userless) users in $conf{cetimethres} seconds ($data{lusers}{locusers} users)");
 
 			if ( $conf{pushuserchange} !~ /off/i )
 			{
@@ -370,12 +412,27 @@ sub timed_events
 			if ( $data{notice}{cycles} > 1 )
 			{
 				if ( $data{notice}{userchange} =~ /^\d+$/ ) { $data{notice}{userchange} = "+$data{notice}{userchange}"; }
-				queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Possible attack " . chr(31) . "ended" . chr(31) . ", $data{notice}{userchange} (+$data{notice}{usermore}/-$data{notice}{userless}) users in " . $conf{cetimethres} * $data{notice}{cycles} . " seconds ($data{lusers}{locusers} users)" . chr(3));
+				send_warning("Possible attack " . chr(31) . "ended" . chr(31) . ", $data{notice}{userchange} (+$data{notice}{usermore}/-$data{notice}{userless}) users in " . $conf{cetimethres} * $data{notice}{cycles} . " seconds ($data{lusers}{locusers} users)");
 			}
 
+			# Find next unique attack id
+			my $attackid = 0;
+			open(ATTACKLOG,"$conf{path}/var/attack.txt");
+			while (<ATTACKLOG>)
+			{
+				chop;
+				if ( /^ATTACK\:(\d+)\:(\d+)\:(\d+)$/ )
+				{
+					if ( $1 > $attackid )
+					{ $attackid = $1; }
+				}
+			}
+			close(ATTACKLOG);
+
+			# Write relevant conn/exits to attacklog
 			open(CONN,"$conf{path}/var/connexit.txt");
 			open(ATTACKLOG,">>$conf{path}/var/attack.txt");
-			print ATTACKLOG "Possible attack ended on " . unix2date(time) . " and lasted for " . $conf{cetimethres} * $data{notice}{cycles} . " seconds.\n";
+			print ATTACKLOG "ATTACK:" . $attackid . ":" . time . ":" . $conf{cetimethres} * $data{notice}{cycles} . "\n";
 
 			while(<CONN>)
 			{
@@ -383,13 +440,14 @@ sub timed_events
 				if ( /^(\d+) (.*)$/ )
 				{
 					if ( $1 >= time - ( $conf{cetimethres} * $data{notice}{cycles} ) )
-					{ print ATTACKLOG unix2date($1) . " $2\n"; }
+					{ print ATTACKLOG $1 + 1 . " " . $2 . "\n"; }
 				}
 			}
 			print ATTACKLOG "\n";
 			close(CONN);
 			close(ATTACKLOG);
 
+			# Reset
 			$data{notice}{cycles} = 0;
 			$data{notice}{usermore} = 0;
 			$data{notice}{userless} = 0;
@@ -936,7 +994,7 @@ sub timed_events
 		}
 		if ( $notify )
 		{
-			queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected RPING: $warnmsg" . chr(3));
+			send_warning("Detected RPING: $warnmsg");
 			if ( $conf{pushrping} !~ /off/i )
 			{
 				push_notify($conf{pushrping}, "RPING: $warnmsg");
@@ -966,7 +1024,7 @@ sub timed_events
 		}
 		if ( $notify )
 		{
-			queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": Detected SENDQ: $warnmsg" . chr(3));
+			send_warning("Detected SENDQ: $warnmsg");
 			if ( $conf{pushsendq} !~ /off/i )
 			{
 				push_notify($conf{pushsendq}, "SENDQ: $warnmsg");
@@ -1104,48 +1162,51 @@ sub irc_loop
 			elsif ( $line =~ /^update (check|install)/i && is_admin($nick) )
 			{
 				my $update = check_update();
-				my $output;
 				my $hasupdate = 0;
 
 				if ( $update eq -1 )
 				{
-					$output = "There was an error checking for updates.";
+					$update = "There was an error checking for updates.";
 				}
 				elsif ( !$update )
 				{
-					$output = "No updates available (running v$version (rev. $revision)).";
+					$update = "No updates available (running v$version (rev. $revision)).";
 				}
 				else
 				{
-					$output = $update . " - run " . chr(31) . "update install" . chr(31) . " to update.";
 					$hasupdate = 1;
 				}
 
 				if ( $line =~ /check/i )
 				{
-					queuemsg(3,"$replymode $nick :$output");
+					if ( $hasupdate ) { $update .= " - run " . chr(31) . "update install" . chr(31) . " to update."; }
+					queuemsg(3,"$replymode $nick :$update");
 				}
 				elsif ( $line =~ /install/i )
 				{
 					if ( $hasupdate )
 					{
 						my $sock = $server{socket};
-						print $sock "$replymode $nick :$output\r\n";
+						print $sock "$replymode $nick :$update\r\n";
 						print $sock "$replymode $nick :Attempting to install...\r\n";
 
 						if ( !apply_update() )
 						{
-							queuemsg(3,"$replymode $nick :There was an error when applying the update..");
+							queuemsg(3,"$replymode $nick :There was an error when applying the update.");
 						}
 						else
 						{
 							print $sock $CMD . chr(3) . 4 . "Update installed by " . chr(2) . $nick . chr(2) . " -- restarting..." . chr(3) . "\r\n";
-							do_restart("I'm being overhauled.");
+							if ( !do_restart("I'm being overhauled.") )
+							{
+								queuemsg(3, "$replymode $nick :There was an error during restart.");
+								queuemsg(3, $CMD . chr(3) . 4 . "Update failed." . chr(3));
+							}
 						}
 					}
 					else
 					{
-						queuemsg(3,"$replymode $nick :$output");
+						queuemsg(3,"$replymode $nick :$update");
 					}
 				}
 			}
@@ -2244,6 +2305,7 @@ sub guess_tz
 	}
 	else
 	{
+		logmsg("Failed to parse TIME response: $usertime");
 		return 0;
 	}
 }
@@ -2457,10 +2519,16 @@ sub dcc
 							print $client "show a map of servers ordered by number of clients.\n";
 							print $client "syntax  : MAP\n";
 						}
+						elsif ( $line =~ /^attack$/i )
+						{
+							print $client "HELP: command 'ATTACK'\n";
+							print $client "shows information about possible attacks (mass user connect/quit).\n";
+							print $client "syntax  : ATTACK <LIST|SHOW> [id]\n";
+						}
 						else
 						{
 							print $client "Available commands are: (use HELP <command> for more details)\n";
-							print $client "HELP, TZ, HACK, CONN, GLINE, NOTICE, SCAN, CLONES, MAP, QUIT\n";
+							print $client "HELP, TZ, HACK, CONN, GLINE, NOTICE, SCAN, CLONES, ATTACK, MAP, QUIT\n";
 						}
 						
 					}
@@ -2721,6 +2789,105 @@ sub dcc
 							}
 						}
 						print $client "END\n";
+					}
+					elsif ( $line =~ /^warnings (\d+)$/i )
+					{
+						my $num = $1;
+						my @WARN;
+						my $count = 0;
+						open(WARN,"$conf{path}/var/warnings.txt");
+						while(<WARN>)
+						{
+							chop;
+							$count++;
+							push(@WARN,$_);
+						}
+						close(WARN);
+
+						my $start = $count - $num;
+						if ( $start < 0 ) { $start = 0; }
+
+						for ( my $id = $start; $id <= $count; $id++ )
+						{
+							my $msg = $WARN[$id];
+							if ( $msg =~ /^(\d+) (.*)$/ )
+							{
+								print $client sprintf("[%s] %s\n", unix2date($1,$offset),$2);
+							}
+						}
+
+						if ( !$count )
+						{ print $client "Log is empty.\n"; }
+						else
+						{ print $client "Listed $count warnings.\n"; }
+					}
+					elsif ( $line =~ s/^attack *//i )
+					{
+						if ( $line =~ /list/i )
+						{
+							my $count = 0;
+							open(ATTACKLOG,"$conf{path}/var/attack.txt");
+							while(<ATTACKLOG>)
+							{
+								chop;
+								if ( /^ATTACK\:(\d+)\:(\d+)\:(\d+)$/ )
+								{
+									print $client "ID: " . $1 . " -- Possible attack ended on " . unix2date($2,$offset) . " after $3 seconds.\n";
+									$count++;
+								}
+							}
+							close(ATTACKLOG);
+
+							if ( !$count )
+							{ print $client "Attack log is empty.\n"; }
+							else
+							{ print $client "Found $count possible attaks in attack log. Use 'attack show <ID>' for details.\n"; }
+						}
+						elsif ( $line =~ /show (\d+)/i )
+						{
+							my $id = $1;
+							my $count = 0;
+							my $found = 0;
+							open(ATTACKLOG,"$conf{path}/var/attack.txt");
+							while(<ATTACKLOG>)
+							{
+								chop;
+
+								# Lets stop at the next possible attack
+								last if ( /^ATTACK\:(\d+)\:(\d+)\:(\d+)$/ && $found );
+
+								# Let's only show entries following the unique ID
+								if ( /^ATTACK\:$id\:(\d+)\:(\d+)$/ )
+								{ $found = 1; }
+
+								if ( /^(\d+) (CONN|EXIT):(.*):(.*):\[(.*)\]:.....:(\w*):(.*)$/ && $found )
+								{
+									$count++;
+									my $ts       = $1;
+									my $type     = $2;
+									my $nick     = $3;
+									my $userhost = $4;
+									my $ip       = $5;
+									my $class    = $6;
+									my $txt      = $7;
+
+									print $client sprintf("[%s] %s %s\!%s %s class:%s (%s)\n",unix2date($ts,$offset),$type,$nick,$userhost,$ip,$class,$txt);
+								}
+							}
+
+							close(ATTACKLOG);
+
+							if ( !$found )
+							{ print $client "Unknown ID.\n"; }
+							elsif ( $count )
+							{ print $client "Listed $count CONN/EXITs.\n"; }
+							else
+							{ print $client "What? No entries found for this ID.\n"; }
+						}
+						else
+						{
+							print $client "Invalid command. Use 'help attack'.\n";
+						}
 					}
 					elsif ( $line =~ /^gline (.*)$/ )
 					{
