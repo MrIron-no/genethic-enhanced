@@ -40,7 +40,7 @@ use English qw(-no_match_vars);
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024060200;
+my $revision = 2024060201;
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = 'DEFAULT';
@@ -432,7 +432,7 @@ sub timed_events
 			# Write relevant conn/exits to attacklog
 			open(CONN,"$conf{path}/var/connexit.txt");
 			open(ATTACKLOG,">>$conf{path}/var/attack.txt");
-			print ATTACKLOG "ATTACK:" . $attackid . ":" . time . ":" . $conf{cetimethres} * $data{notice}{cycles} . "\n";
+			print ATTACKLOG "ATTACK:" . $attackid + 1 . ":" . time . ":" . $conf{cetimethres} * $data{notice}{cycles} . "\n";
 
 			while(<CONN>)
 			{
@@ -440,7 +440,7 @@ sub timed_events
 				if ( /^(\d+) (.*)$/ )
 				{
 					if ( $1 >= time - ( $conf{cetimethres} * $data{notice}{cycles} ) )
-					{ print ATTACKLOG $1 + 1 . " " . $2 . "\n"; }
+					{ print ATTACKLOG $1 . " " . $2 . "\n"; }
 				}
 			}
 			print ATTACKLOG "\n";
@@ -2525,10 +2525,18 @@ sub dcc
 							print $client "shows information about possible attacks (mass user connect/quit).\n";
 							print $client "syntax  : ATTACK <LIST|SHOW> [id]\n";
 						}
+						elsif ( $line =~ /^warnings$/i )
+						{
+							print $client "HELP: command 'WARNINGS'\n";
+							print $client "shows the n last warnings.\n";
+							print $client "syntax  : WARNINGS <number>\n";
+							print $client "example : WARNINGS 50\n";
+							print $client "shows the last 50 warnings.\n";
+						}
 						else
 						{
 							print $client "Available commands are: (use HELP <command> for more details)\n";
-							print $client "HELP, TZ, HACK, CONN, GLINE, NOTICE, SCAN, CLONES, ATTACK, MAP, QUIT\n";
+							print $client "HELP, TZ, HACK, CONN, GLINE, NOTICE, SCAN, CLONES, ATTACK, WARNINGS, MAP, QUIT\n";
 						}
 						
 					}
