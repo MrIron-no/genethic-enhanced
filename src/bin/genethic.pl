@@ -261,7 +261,7 @@ sub send_warning
 	queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ":" . $_[0] . chr(3));
 
 	open(WARNFILE,">>$conf{path}/var/warnings.txt");
-	print WARNFILE time . " " . $_[0];
+	print WARNFILE time . " " . $_[0] . "\n";
 	close(WARNFILE);
 }
 
