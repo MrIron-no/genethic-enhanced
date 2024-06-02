@@ -5,6 +5,8 @@
 use strict;
 use warnings;
 use LWP::Simple;
+use File::Path qw( make_path rmtree );
+use File::Copy;
 
 my %conf;
 my $files;
@@ -40,12 +42,18 @@ else
 # Fetch name of config file
 my $config = ( split '/', $ARGV[0] )[ -1 ];
 
+# Check new dependencies
+if ( !check_dependencies() )
+{
+	exit;
+}
+
 # Loading configuration, including PATH
 load_config();
 
 # Creating directories
-system("mkdir -p " . $conf{path} . "/.update/bin/");
-system("mkdir -p " . $conf{path} . "/.update/etc/");
+make_path($conf{path} . "/.update/bin/");
+make_path($conf{path} . "/.update/etc/");
 
 # Files to fetch
 push(@{$files},"/bin/genethic.pl");
@@ -60,6 +68,12 @@ clean_up();
 
 print("Done.\n");
 exit(0);
+
+# Check dependencies
+sub check_dependencies
+{
+	return 1;
+}
 
 # Fetch update from GitHub
 sub fetch_update
@@ -146,7 +160,7 @@ sub merge_config
 		{
 			print NEWCONFIG "$_";
 		}
-		elsif ( /^((\w|_)+)(	| )+(.*)/ )
+		elsif ( /^((\w|_)+)(	| )+(.*)?/ )
 		{
 			my $name = $1;
 			my $value = $4;
@@ -214,12 +228,20 @@ sub merge_config
 			}
 			else
 			{
-				s/\Q$value\E/$conf{$name}/g;
+				if ( $conf{$name} ne '' )
+				{
+					s/\Q$value\E/$conf{$name}/g;
+				}
 				print NEWCONFIG "$_";
 			}
 		}
+		else
+		{
+			print "Unknown config line: $_";
+		}
 	}
 	close(CONFIG);
+	close(NEWCONFIG);
 	print "Configuration merged to: $conf{path}/.update/etc/$config.new\n";
 }
 
@@ -228,27 +250,28 @@ sub apply_updates
 	# Make backup folder
 	my $time = time;
 
-	system("mkdir -p " . $conf{path} . "/.backup/" . $time . "/bin/");
-	system("mkdir -p " . $conf{path} . "/.backup/" . $time . "/etc/");
+	make_path($conf{path} . "/.backup/" . $time . "/bin/");
+	make_path($conf{path} . "/.backup/" . $time . "/etc/");
 
 	# Transfer new files and make backup of existing files
 	foreach(@{$files})
 	{
-		system("cp " . $conf{path} . $_ . " " . $conf{path} . "/.backup/" . $time . $_);
+		copy($conf{path} . $_, $conf{path} . "/.backup/" . $time . $_);
 		print("Copying " . $conf{path} . $_ . " --> " . $conf{path} . "/.backup/" . $time . $_ . "\n");
-		system("cp " . $conf{path} . "/.update" . $_ . " " . $conf{path} . $_);
+		copy($conf{path} . "/.update" . $_, $conf{path} . $_);
 		print("Copying " . $conf{path} . "/.update" . $_ . " --> " . $conf{path} . $_ . "\n");
 	}
 
 	# Transfer config file
-	system("cp " . $ARGV[0] . " " . $conf{path} . "/.backup/" . $time . "/etc/" . $config);
+	sleep(1);
+	copy($ARGV[0], $conf{path} . "/.backup/" . $time . "/etc/" . $config);
 	print("Copying original configuration file " . $ARGV[0] . " --> " . $conf{path} . "/.backup/" . $time . "/" . $config . "\n");
-	system("cp " . $conf{path} . "/.update/etc/" . $config . ".new " . $ARGV[0]);
+	copy($conf{path} . "/.update/etc/" . $config . ".new", $ARGV[0]);
 	print("Copying merged configuration file " . $conf{path} . "/.update/etc/" . $config . ".new --> " . $ARGV[0] . "\n");
 }
 
 sub clean_up
 {
-	system("rm -rf " . $conf{path} . "/.update/");
+	rmtree($conf{path} . "/.update/");
 	print("Finished cleaning up temp files\n");
 }

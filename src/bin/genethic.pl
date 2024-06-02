@@ -24,8 +24,10 @@ my $debug = 0;
 #
 
 use strict;
+use warnings;
 use IO::Socket;
 use POSIX "setsid";
+use POSIX ":sys_wait_h";
 use Time::Local;
 use Time::HiRes qw (sleep);
 use File::Basename;
@@ -40,10 +42,11 @@ use English qw(-no_match_vars);
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024060201;
+my $revision = 2024060202;
 
 $SIG{PIPE} = "IGNORE";
-$SIG{CHLD} = 'DEFAULT';
+#$SIG{CHLD} = 'DEFAULT';
+$SIG{CHLD} = sub { while ( waitpid(-1, WNOHANG) > 0 ) { } };
 
 my %server;
 my %data;
@@ -233,11 +236,6 @@ sub apply_update
 			exit;
 		}
 	}
-	else
-	{
-		waitpid($chpid, 0);
-	}
-	1;
 
 	return $retme;
 }
@@ -2371,6 +2369,7 @@ sub dcc
 	my $warned     = 0;
 
 	# lets go away now.
+#	local $SIG{CHLD} = 'IGNORE';
 	if ( !( my $pid = fork() ) )
 	{
 		# I am junior
@@ -2998,6 +2997,7 @@ sub dcc
 		}
 		exit;
 	}
+
 	return 1;
 }
 
