@@ -42,10 +42,9 @@ use English qw(-no_match_vars);
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024060202;
+my $revision = 2024060300;
 
 $SIG{PIPE} = "IGNORE";
-#$SIG{CHLD} = 'DEFAULT';
 $SIG{CHLD} = sub { while ( waitpid(-1, WNOHANG) > 0 ) { } };
 
 my %server;
@@ -82,6 +81,10 @@ $data{time}{statsl} = time - ( ( ( $conf{pollinterval} - 30 ) / 6 ) * 4 );
 $data{time}{lusers} = time - ( ( ( $conf{pollinterval} - 30 ) / 6 ) * 3 );
 $data{time}{who} = time - ( ( ( $conf{pollinterval} - 30 ) / 6 ) * 2 );
 $data{time}{rping} = time - ( ( ( $conf{pollinterval} - 30 ) / 6 ) * 1 );
+$data{time}{account} = 0;
+$data{time}{lastcheck} = 0;
+$data{time}{checkupdate} = 0;
+$data{time}{connexitclean} = 0;
 
 while(1)
 {
@@ -258,7 +261,7 @@ sub is_admin
 
 sub send_warning
 {
-	queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ":" . $_[0] . chr(3));
+	queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "WARNING" . chr(2) . ": " . $_[0] . chr(3));
 
 	open(WARNFILE,">>$conf{path}/var/warnings.txt");
 	print WARNFILE time . " " . $_[0] . "\n";
@@ -317,9 +320,9 @@ sub queuemsg
 
 sub timed_events
 {
-	if ( time - $data{checkupdate} > 86400 )
+	if ( time - $data{time}{checkupdate} > 86400 )
 	{
-		$data{checkupdate} = time;
+		$data{time}{checkupdate} = time;
 
 		my $update = check_update();
 
@@ -328,7 +331,7 @@ sub timed_events
 			queuemsg(3,$CMD . chr(3) . 4 . chr(2) . "UPDATE" . chr(2) . ": $update - run " . chr(31) . "update install" . chr(31) . " to update" . chr(3));
 		}
 	}
-	elsif ( time - $data{connexitclean} > 3600 )
+	elsif ( time - $data{time}{connexitclean} > 3600 )
 	{
 		# time to clean the connexit file
 		my @CONN;
@@ -352,10 +355,10 @@ sub timed_events
 		}
 		close(CONN);
 
-		$data{connexitclean} = time;
+		$data{time}{connexitclean} = time;
 	}
 #	if ( time - $data{notice}{lastcheck} >= 0 && time - $data{notice}{lastprint} >= $conf{cetimethres} && !$conf{hubmode} )
-	if ( time - $data{notice}{lastcheck} >= $conf{cetimethres} && !$conf{hubmode} )
+	if ( time - $data{time}{lastcheck} >= $conf{cetimethres} && !$conf{hubmode} )
 	{
 		my $time;
 		my $userchange = 0;
@@ -415,30 +418,33 @@ sub timed_events
 
 			# Find next unique attack id
 			my $attackid = 0;
-			open(ATTACKLOG,"$conf{path}/var/attack.txt");
-			while (<ATTACKLOG>)
+			if ( open(ATTACKLOG,"$conf{path}/var/attack.txt") )
 			{
-				chop;
-				if ( /^ATTACK\:(\d+)\:(\d+)\:(\d+)$/ )
+				while (<ATTACKLOG>)
 				{
-					if ( $1 > $attackid )
-					{ $attackid = $1; }
+					if ( /^ATTACK\:(\d+)\:(\d+)\:(\d+)$/ )
+					{
+						if ( $1 > $attackid )
+						{ $attackid = $1; }
+					}
 				}
-			}
 			close(ATTACKLOG);
+			}
 
 			# Write relevant conn/exits to attacklog
+			$attackid++;
+
 			open(CONN,"$conf{path}/var/connexit.txt");
 			open(ATTACKLOG,">>$conf{path}/var/attack.txt");
-			print ATTACKLOG "ATTACK:" . $attackid + 1 . ":" . time . ":" . $conf{cetimethres} * $data{notice}{cycles} . "\n";
+			print ATTACKLOG "ATTACK:$attackid:" . time . ":" . $conf{cetimethres} * $data{notice}{cycles} . "\n";
 
 			while(<CONN>)
 			{
-				chop;
+			#	chop;
 				if ( /^(\d+) (.*)$/ )
 				{
 					if ( $1 >= time - ( $conf{cetimethres} * $data{notice}{cycles} ) )
-					{ print ATTACKLOG $1 . " " . $2 . "\n"; }
+					{ print ATTACKLOG $_; }
 				}
 			}
 			print ATTACKLOG "\n";
@@ -452,7 +458,7 @@ sub timed_events
 			$data{notice}{userchange} = 0;
 		}
 
-		$data{notice}{lastcheck} = time;
+		$data{time}{lastcheck} = time;
 	}
 	
 	if ( ( time - $data{status}{report} ) >= $conf{pollinterval} )
@@ -472,9 +478,20 @@ sub timed_events
 		if ( $conf{trafficreport} )
 		{
 			%{$data{cpu}{new}} = cpu();
+			my $tot;
+			my $used;
 
-			my $tot = ( $data{cpu}{new}{used} + $data{cpu}{new}{idle} ) - ( $data{cpu}{old}{used} + $data{cpu}{old}{idle} );
-			my $used = $data{cpu}{new}{used} - $data{cpu}{old}{used};
+			if ( exists $data{cpu}{old}{used} && exists $data{cpu}{old}{idle} )
+			{
+				$tot = ( $data{cpu}{new}{used} + $data{cpu}{new}{idle} ) - ( $data{cpu}{old}{used} + $data{cpu}{old}{idle} );
+				$used = $data{cpu}{new}{used} - $data{cpu}{old}{used};
+			}
+			else
+			{
+				$tot = $data{cpu}{new}{used} + $data{cpu}{new}{idle};
+				$used = $data{cpu}{new}{used};
+			}
+
 			my $time = $tot / 100;
 			my $pcent = 0;
 			if ( $time > 0 )
@@ -486,7 +503,11 @@ sub timed_events
 
 			%{$data{cpu}{old}} = %{$data{cpu}{new}};
 			
-			$data{traftime}{old} = $data{traftime}{new};
+			if ( exists $data{traftime}{new} )
+			{ $data{traftime}{old} = $data{traftime}{new}; }
+			else
+			{ $data{traftime}{old} = 0; }
+
 			$data{traftime}{new} = time;
 			%{$data{traffic}{new}} = traffic();
 
@@ -502,7 +523,7 @@ sub timed_events
 				my %rate;
 				foreach ( keys %{$data{traffic}{new}{$ifname}} )
 				{
-					if ( exists $data{traffic}{old}{$ifname} )
+					if ( exists $data{traffic}{old}{$ifname}{$_} )
 					{
 						my $old = $data{traffic}{old}{$ifname}{$_};
 						my $new = $data{traffic}{new}{$ifname}{$_};
@@ -513,7 +534,6 @@ sub timed_events
 						}
 
 						$rate{$_} = int ( ( $new - $old ) / $difftime );
-
 					}
 
 					$data{traffic}{old}{$ifname}{$_} = $data{traffic}{new}{$ifname}{$_};
@@ -612,14 +632,11 @@ sub timed_events
 				$hub =~ s/\.$conf{networkdomain}//;
 
 				$rpingmsg .= chr(2) . $hub . chr(2) . ":$data{clines}{$_}";
-				if ( exists $data{last}{rping}{$_} )
+				$rpdiff = $data{clines}{$_} - $data{last}{rping}{$_};
+				if ( $rpdiff != 0 )
 				{
-					$rpdiff = $data{clines}{$_} - $data{last}{rping}{$_};
-					if ( $rpdiff != 0 )
-					{
-						if ( $rpdiff =~ /^\d+$/ ) { $rpdiff ="+$rpdiff"; }
-						$rpingmsg .= "($rpdiff)";
-					}
+					if ( $rpdiff =~ /^\d+$/ ) { $rpdiff ="+$rpdiff"; }
+					$rpingmsg .= "($rpdiff)";
 				}
 				$rpingmsg .= " -- ";
 
@@ -654,14 +671,11 @@ sub timed_events
 				my $rpdiff = 0;
 
 				$linkmsg .= "rp:$data{clines}{$_}";
-				if ( exists $data{last}{rping}{$_} )
+				$rpdiff = $data{clines}{$_} - $data{last}{rping}{$_};
+				if ( $rpdiff != 0 )
 				{
-					$rpdiff = $data{clines}{$_} - $data{last}{rping}{$_};
-					if ( $rpdiff != 0 )
-					{
-						if ( $rpdiff =~ /^\d+$/ ) { $rpdiff ="+$rpdiff"; }
-						$linkmsg .= "($rpdiff)";
-					}
+					if ( $rpdiff =~ /^\d+$/ ) { $rpdiff ="+$rpdiff"; }
+					$linkmsg .= "($rpdiff)";
 				}
 
 				$data{last}{rping}{$_} = $data{clines}{$_};
@@ -715,7 +729,7 @@ sub timed_events
 
 		# its IMPORT_FILE time
 
-		if ( -r "$conf{import_file}" )
+		if ( exists $conf{import_file} && -r "$conf{import_file}" )
 		{
 			my $import = 'IMPORT ->';
 			open(IMPORT,"$conf{import_file}");
@@ -1137,6 +1151,10 @@ sub irc_loop
 					queuemsg(3,"$replymode $nick :note   : 'warm' reload configuration on the fly.");
 					queuemsg(3,"$replymode $nick :       : 'cold' reload configuration and restart.");
 				}
+				elsif ( $line =~ /die/i )
+				{
+					queuemsg(3,"$replymode $nick :command: DIE <reason>");
+				}
 				elsif ( $line =~ /raw/i )
 				{
 					queuemsg(3,"$replymode $nick :command: RAW <command>");
@@ -1153,7 +1171,7 @@ sub irc_loop
 				}
 				else
 				{
-					queuemsg(3,"$replymode $nick :command: HELP <nick|raw|dcc|reload|update>");
+					queuemsg(3,"$replymode $nick :command: HELP <nick|raw|dcc|reload|die|update>");
 					queuemsg(3,"$replymode $nick :note   : help about commands");
 				}
 			}
@@ -1225,6 +1243,15 @@ sub irc_loop
 				{
 					queuemsg(3,"$replymode $nick :error: missing or incorrect argument(s), try 'help reload'");
 				}
+			}
+			elsif ( $line =~ s/^die *//i && is_admin($nick) )
+			{
+				my $sock = $server{socket};
+				print $sock $CMD . chr(3) . 4 . "Shutting down on the order of " . chr(2) . $nick . chr(2) . chr(3) . "\r\n";
+				print $sock "QUIT :" . $line . "\r\n";
+
+				sleep(3);
+				exit(0);
 			}
 			elsif ( $line =~ s/^nick *//i && is_admin($nick) )
 			{
@@ -1487,6 +1514,8 @@ sub irc_loop
 				my $account = $6;
 				my $permitted = 0;
 
+				queuemsg(2,"PRIVMSG $opernick :TIME");
+
 				foreach ( @{$conf{ippermit}} )
 				{
 					if ( $ip =~ /^$_$/ )
@@ -1533,6 +1562,7 @@ sub irc_loop
 			if ( !exists $data{clines}{$hub} )
 			{
 				$data{clines}{$hub} = "n/a";
+				$data{last}{rping}{$hub} = 0;
 			}
 		}
 		elsif ( $line =~ s/^211 $data{nick} ((\w|\d|\.)+) (\d+) //i )
@@ -1587,14 +1617,12 @@ sub irc_loop
 				$data{time}{statsc} = time;
 				$data{status}{statsc} = 1;
 			}
-
-			if ( $1 =~ /v/i )
+			elsif ( $1 =~ /v/i )
 			{
 				$data{time}{statsv} = time;
 				$data{status}{statsv} = 1;
 			}
-
-			if ( $1 =~ /l/i )
+			elsif ( $1 =~ /l/i )
 			{
 				$data{time}{statsl} = time;
 				$data{status}{statsl} = 1;
@@ -2271,6 +2299,31 @@ sub guess_tz
 
 		return timegm($sec,$min,$hour,$day,$mon,$year) - time;
 	}
+	# 03/06/2024 15:44
+	elsif ( $usertime =~ /(\d{2})\/(\d{2})\/(\d{4}) (\d+):(\d+)$/ )
+	{
+		my $day = $1;
+		my $mon = $2;
+		my $year = $3;
+		my $hour = $4;
+		my $min  = $5;
+
+		$mon =~ s/jan/1/i;
+		$mon =~ s/feb/2/i;
+		$mon =~ s/mar/3/i;
+		$mon =~ s/apr/4/i;
+		$mon =~ s/may/5/i;
+		$mon =~ s/jun/6/i;
+		$mon =~ s/jul/7/i;
+		$mon =~ s/aug/8/i;
+		$mon =~ s/sep/9/i;
+		$mon =~ s/oct/10/i;
+		$mon =~ s/nov/11/i;
+		$mon =~ s/dec/12/i;
+		$mon--;
+
+		return timegm(0,$min,$hour,$day,$mon,$year) - time;
+	}
 	# Fri 26th Apr 2024 03:07p
 	elsif ( $usertime =~ /(\w{3}) (\d{1,2})(\w{2}) (\w{3}) (\d{4}) (\d+):(\d+)(\w{1})$/ )
 	{
@@ -2369,7 +2422,6 @@ sub dcc
 	my $warned     = 0;
 
 	# lets go away now.
-#	local $SIG{CHLD} = 'IGNORE';
 	if ( !( my $pid = fork() ) )
 	{
 		# I am junior
@@ -2766,6 +2818,7 @@ sub dcc
 						my $num = $1;
 						my @CONN;
 						my $count = 0;
+						my $tcount = 0;
 						open(CONN,"$conf{path}/var/connexit.txt");
 						while(<CONN>)
 						{
@@ -2778,7 +2831,7 @@ sub dcc
 						my $start = $count - $num;
 						if ( $start < 0 ) { $start = 0; }
 
-						for ( my $id = $start; $id <= $count; $id++ )
+						for ( my $id = $start; $id < $count; $id++ )
 						{
 							my $msg = $CONN[$id];
 							if ( $msg =~ /^(\d+) (CONN|EXIT):(.*):(.*):\[(.*)\]:.....:(\w*):(.*)$/ )
@@ -2790,18 +2843,23 @@ sub dcc
 								my $ip       = $5;
 								my $class    = $6;
 								my $txt      = $7;
+								$tcount++;
 
 								print $client sprintf("[%s] %s %s\!%s %s class:%s (%s)\n",unix2date($ts,$offset),$type,$nick,$userhost,$ip,$class,$txt);
 
 							}
 						}
-						print $client "END\n";
+						if ( !$tcount )
+						{ print $client "Log is empty.\n"; }
+						else
+						{ print $client "Listed $tcount entries.\n"; }
 					}
 					elsif ( $line =~ /^warnings (\d+)$/i )
 					{
 						my $num = $1;
 						my @WARN;
 						my $count = 0;
+						my $tcount = 0;
 						open(WARN,"$conf{path}/var/warnings.txt");
 						while(<WARN>)
 						{
@@ -2814,36 +2872,38 @@ sub dcc
 						my $start = $count - $num;
 						if ( $start < 0 ) { $start = 0; }
 
-						for ( my $id = $start; $id <= $count; $id++ )
+						for ( my $id = $start; $id < $count; $id++ )
 						{
-							my $msg = $WARN[$id];
-							if ( $msg =~ /^(\d+) (.*)$/ )
+							if ( $WARN[$id] =~ /^(\d+) (.*)$/ )
 							{
 								print $client sprintf("[%s] %s\n", unix2date($1,$offset),$2);
+								$tcount++;
 							}
 						}
 
-						if ( !$count )
+						if ( !$tcount )
 						{ print $client "Log is empty.\n"; }
 						else
-						{ print $client "Listed $count warnings.\n"; }
+						{ print $client "Listed $tcount warnings.\n"; }
 					}
 					elsif ( $line =~ s/^attack *//i )
 					{
 						if ( $line =~ /list/i )
 						{
 							my $count = 0;
-							open(ATTACKLOG,"$conf{path}/var/attack.txt");
-							while(<ATTACKLOG>)
+							if ( open(ATTACKLOG,"$conf{path}/var/attack.txt") )
 							{
-								chop;
-								if ( /^ATTACK\:(\d+)\:(\d+)\:(\d+)$/ )
+								while(<ATTACKLOG>)
 								{
-									print $client "ID: " . $1 . " -- Possible attack ended on " . unix2date($2,$offset) . " after $3 seconds.\n";
-									$count++;
+									chop;
+									if ( /^ATTACK\:(\d+)\:(\d+)\:(\d+)$/ )
+									{
+										print $client "ID: " . $1 . " -- Possible attack ended on " . unix2date($2,$offset) . " after $3 seconds.\n";
+										$count++;
+									}
 								}
+								close(ATTACKLOG);
 							}
-							close(ATTACKLOG);
 
 							if ( !$count )
 							{ print $client "Attack log is empty.\n"; }

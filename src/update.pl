@@ -100,7 +100,7 @@ sub load_config
 	{
 		chop;
 
-		if ( /^((\w|_)+)(	| )+(.*)/ )
+		if ( /^((\w|_)+)(	| )+(.*)?/ )
 		{
 			my $name = $1;
 			my $value = $4;
@@ -151,6 +151,7 @@ sub load_config
 sub merge_config
 {
 	my %skip;
+	my $newentries;
 
 	open(NEWCONFIG,">" . $conf{path} . "/.update/etc/" . $config . ".new") or die "Unable to write to new configuration file: $!";
 	open(DISTCONFIG,$conf{path} . "/.update/etc/sample.conf") or die "Unable to open dist configuration file: $!";
@@ -167,6 +168,11 @@ sub merge_config
 			$name =~ tr/[A-Z]/[a-z]/;
 
 			if ( !exists $conf{$name} )
+			{
+				print NEWCONFIG "$_";
+				push(@{$newentries},$name);
+			}
+			elsif ( $name eq 'version' )
 			{
 				print NEWCONFIG "$_";
 			}
@@ -228,10 +234,19 @@ sub merge_config
 			}
 			else
 			{
-				if ( $conf{$name} ne '' )
+				if ( $conf{$name} eq '' && $value eq '' )
 				{
-					s/\Q$value\E/$conf{$name}/g;
+					# ignore
 				}
+				elsif ( $conf{$name} eq '' )
+				{
+					s/\Q$value\E//;
+				}
+				else
+				{
+					s/\Q$value\E/$conf{$name}/;
+				}
+
 				print NEWCONFIG "$_";
 			}
 		}
@@ -243,6 +258,9 @@ sub merge_config
 	close(CONFIG);
 	close(NEWCONFIG);
 	print "Configuration merged to: $conf{path}/.update/etc/$config.new\n";
+
+	if ( $newentries ) 
+	{ print "New configuration entries - check values: @{$newentries}\n"; }
 }
 
 sub apply_updates
@@ -263,7 +281,6 @@ sub apply_updates
 	}
 
 	# Transfer config file
-	sleep(1);
 	copy($ARGV[0], $conf{path} . "/.backup/" . $time . "/etc/" . $config);
 	print("Copying original configuration file " . $ARGV[0] . " --> " . $conf{path} . "/.backup/" . $time . "/" . $config . "\n");
 	copy($conf{path} . "/.update/etc/" . $config . ".new", $ARGV[0]);
