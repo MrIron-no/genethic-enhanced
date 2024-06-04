@@ -33,6 +33,7 @@ use Time::HiRes qw (sleep);
 use File::Basename;
 use File::Copy;
 use File::Path qw(make_path);
+use File::Pid;
 use File::chmod qw(chmod);
 use LWP::UserAgent;
 use LWP::Protocol::https;
@@ -42,7 +43,7 @@ use English qw(-no_match_vars);
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024060300;
+my $revision = 2024060400;
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = sub { while ( waitpid(-1, WNOHANG) > 0 ) { } };
@@ -1213,6 +1214,7 @@ sub irc_loop
 						else
 						{
 							print $sock $CMD . chr(3) . 4 . "Update installed by " . chr(2) . $nick . chr(2) . " -- restarting..." . chr(3) . "\r\n";
+							sleep(10);
 							if ( !do_restart("I'm being overhauled.") )
 							{
 								queuemsg(3, "$replymode $nick :There was an error during restart.");
@@ -2202,7 +2204,14 @@ sub daemonize
 		if ( $pid )
 		{
 			# I'm daddy
-			print "GenEthic-Enhanced v$conf{version} started.\n";
+			print "GenEthic-Enhanced v$conf{version} started (PID: $pid).\n";
+
+			my $pidfile = File::Pid->new({
+				file => $conf{path} . '/bin/genethic.pid',
+				pid => $pid,
+			});   
+			$pidfile->write;
+   
 			exit;
 		}
 		else
