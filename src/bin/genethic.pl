@@ -43,7 +43,7 @@ use English qw(-no_match_vars);
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024060400;
+my $revision = 2024060401;
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = sub { while ( waitpid(-1, WNOHANG) > 0 ) { } };
@@ -155,6 +155,8 @@ sub check_update()
 
 	my $uversion;
 	my $urevision;
+	my $dependencies;
+	my @missing;
 
 	while (<$url_fh>)
 	{
@@ -166,9 +168,27 @@ sub check_update()
 		{
 			$urevision = $1;
 		}
+		elsif ( /^dependencies (.*)/ )
+		{
+			$dependencies = $1;
+		}
 	}
 
-	logdeb("UPDATE: Most recent information on github is version: $uversion revision: $urevision");
+	logdeb("Most recent information on github is version: $uversion revision: $urevision");
+
+	foreach (split(/ /,$dependencies))
+	{
+		if ( `/usr/bin/env perl -M$_ -e 'print "1";' 2>&1` ne '1' )
+		{
+			push(@missing,$_);
+		}
+	}
+
+	if ( @missing )
+	{
+		logdeb("Missing dependencies: @missing");
+		return "-2 @missing";
+	}
 
 	if ( $urevision > $revision )
 	{
@@ -327,9 +347,13 @@ sub timed_events
 
 		my $update = check_update();
 
-		if ( $update ne -1 && $update ne 0 )
+		if ( $update =~ s/^-2 *// )
 		{
-			queuemsg(3,$CMD . chr(3) . 4 . chr(2) . "UPDATE" . chr(2) . ": $update - run " . chr(31) . "update install" . chr(31) . " to update" . chr(3));
+			queuemsg(3,$CMD . chr(3) . 4 . chr(2) . "UPDATE" . chr(2) . ": An update is available, but the following dependencies are missing: $update. Please install and re-run " . chr(31) . "update install" . chr(31) . " to update." . chr(3));
+		}
+		elsif ( $update ne -1 && $update ne 0 )
+		{
+			queuemsg(3,$CMD . chr(3) . 4 . chr(2) . "UPDATE" . chr(2) . ": $update - run " . chr(31) . "update install" . chr(31) . " to update." . chr(3));
 		}
 	}
 	elsif ( time - $data{time}{connexitclean} > 3600 )
@@ -1181,7 +1205,11 @@ sub irc_loop
 				my $update = check_update();
 				my $hasupdate = 0;
 
-				if ( $update eq -1 )
+				if ( $update =~ s/^-2 *// )
+				{
+					$update = "An update is available, but the following dependencies are missing: $update. Please install and re-run 'update install'.";
+				}
+				elsif ( $update eq -1 )
 				{
 					$update = "There was an error checking for updates.";
 				}
@@ -1215,6 +1243,7 @@ sub irc_loop
 						{
 							print $sock $CMD . chr(3) . 4 . "Update installed by " . chr(2) . $nick . chr(2) . " -- restarting..." . chr(3) . "\r\n";
 							sleep(10);
+
 							if ( !do_restart("I'm being overhauled.") )
 							{
 								queuemsg(3, "$replymode $nick :There was an error during restart.");
