@@ -42,12 +42,6 @@ else
 # Fetch name of config file
 my $config = ( split '/', $ARGV[0] )[ -1 ];
 
-# Check new dependencies
-if ( !check_dependencies() )
-{
-	exit;
-}
-
 # Loading configuration, including PATH
 load_config();
 
@@ -68,12 +62,6 @@ clean_up();
 
 print("Done.\n");
 exit(0);
-
-# Check dependencies
-sub check_dependencies
-{
-	return 1;
-}
 
 # Fetch update from GitHub
 sub fetch_update
