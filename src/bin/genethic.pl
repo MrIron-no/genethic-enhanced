@@ -43,7 +43,7 @@ use English qw(-no_match_vars);
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024060401;
+my $revision = 2024061300;
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = sub { while ( waitpid(-1, WNOHANG) > 0 ) { } };
@@ -300,15 +300,34 @@ sub push_notify
 
     foreach ( @{$conf{usertoken}} )
     {
-        my $response = $ua->post(
-            $url,
-            [
-                "token" =>  $conf{pushtoken},
-                "user" =>  $_,
-		"priority" => $priority,
-                "message" => $message,
-            ]
-        );
+	my $response;
+
+	if ( $priority eq 2 )
+	{
+		$response = $ua->post(
+			$url,
+			[
+				"token" =>  $conf{pushtoken},
+				"user" =>  $_,
+				"priority" => 2,
+				"expire" => $conf{pushexpire},
+				"retry" => $conf{pushretry},
+				"message" => $message,
+			]
+		);
+	}
+	else
+	{
+		$response = $ua->post(
+			$url,
+			[
+				"token" =>  $conf{pushtoken},
+				"user" =>  $_,
+				"priority" => $priority,
+				"message" => $message,
+			]
+		);
+	}
 
         if ($response->is_success) {
             logmsg("Notification sent successfully to $_ (pri $priority)");
@@ -1728,17 +1747,17 @@ sub irc_loop
 					queuemsg(2,"INVITE $opernick $conf{channel}");
 				}
 			}
-			elsif ( $line =~ /^Net junction: (.*) (.*)$/ )
+			elsif ( $line =~ /^Net junction: ([^\s]+) ([^\s]+)$/ )
 			{
-				queuemsg(3,$CMD . chr(3) . 4 . chr(2) . "NETJOIN" . chr(2) ." $1 $2" . chr(3));
+				queuemsg(3,$CMD . chr(3) . 4 . chr(2) . "NETJOIN:" . chr(2) ." $1 -- $2" . chr(3));
 
 				my $notified = 0;
 				my $server1 = $1;
 				my $server2 = $2;
 
-				if ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i )
+				if ( ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i ) && $conf{pushlocsplit} !~ /off/i && $conf{pushnetjoin} !~ /off/i )
 				{
-					push_notify($conf{pushlocsplit}, "NETJOIN $server1 $server2");
+					push_notify($conf{pushnetjoin}, "NETJOIN $server1 $server2");
 					$notified = 1;
 				}
 				else
@@ -1747,24 +1766,25 @@ sub irc_loop
 					{
 						if ( $server1 =~ /$_/i || $server2 =~ /$_/i )
 						{
-							push_notify($conf{splitlist}{$_}, "NETJOIN $server1 $server2");
+							push_notify($conf{pushnetjoin}, "NETJOIN $server1 $server2");
 							$notified = 1;
 						}
 					}
 				}
 
-				if ( $conf{pushnetall} !~ /off/i && !$notified )
+				if ( $conf{pushnetall} !~ /off/i && !$notified && $conf{pushnetjoin} !~ /off/i )
 				{
-					push_notify($conf{pushnetall}, "NETJOIN $server1 $server2");
+					push_notify($conf{pushnetjoin}, "NETJOIN $server1 $server2");
 				}
 			}
-			elsif ( $line =~ /^Net break: (.*) (.*)$/ )
+			elsif ( $line =~ /^Net break: ([^\s]+) ([^\s]+) \((.*)\)$/ )
 			{
-				queuemsg(3,$CMD . chr(3) . 4 . chr(2) . "NETQUIT" . chr(2) . " $1 $2" . chr(3));
+				queuemsg(3,$CMD . chr(3) . 4 . chr(2) . "NETQUIT:" . chr(2) . " $1 -- $2 ($3)" . chr(3));
 
 				my $notified = 0;
 				my $server1 = $1;
 				my $server2 = $2;
+				my $message = $3;
 
 				if ( $server1 =~ /$data{servername}/i && exists $data{uplinks}{$server2} )
 				{
@@ -1775,9 +1795,9 @@ sub irc_loop
 					delete $data{uplinks}{$server1};
 				}
 
-				if ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i )
+				if ( ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i ) && $conf{pushlocsplit} !~ /off/i )
 				{
-					push_notify($conf{pushlocsplit}, "NETQUIT $server1 $server2");
+					push_notify($conf{pushlocsplit}, "NETQUIT $server1 $server2 ($message)");
 					$notified = 1;
 				}
 				else
@@ -1786,7 +1806,7 @@ sub irc_loop
 					{
 						if ( $server1 =~ /$_/i || $server2 =~ /$_/i )
 						{
-							push_notify($conf{splitlist}{$_}, "NETQUIT $server1 $server2");
+							push_notify($conf{splitlist}{$_}, "NETQUIT $server1 $server2 ($message)");
 							$notified = 1;
 						}
 					}
@@ -1794,7 +1814,7 @@ sub irc_loop
 
 				if ( $conf{pushnetall} !~ /off/i && !$notified )
 				{
-					push_notify($conf{pushnetall}, "NETQUIT $server1 $server2");
+					push_notify($conf{pushnetall}, "NETQUIT $server1 $server2 ($message)");
 				}
 			}
 		}
@@ -2083,9 +2103,14 @@ sub load_config
 
 		if ( !( $newconf{pushnetsplit} =~ /^(\w|\.)+ \-2|\-1|0|1|2$/i ) )
 		{ push(@ECONF,"PUSHNETSPLIT"); }
-
 		if ( !( $newconf{pushnetall} =~ /^off|\-2|\-1|0|1|2$/i ) )
 		{ push(@ECONF,"PUSHNETALL"); }
+		if ( !( $newconf{pushnetjoin} =~ /^off|\-2|\-1|0|1|2$/i ) )
+		{ push(@ECONF,"PUSHNETJOIN"); }
+		if ( !( $newconf{pushexpire} =~ /^\d+$/ ) )
+		{ push(@ECONF,"PUSHEXPIRE"); }
+		if ( !( $newconf{pushretry} =~ /^([3-9]\d|[1-9]\d{2,})$/ ) )
+		{ push(@ECONF,"PUSHRETRY"); }
 
 		if ( !( $newconf{pushtoken} =~ /^.+$/ ) )
 		{ push(@ECONF,"PUSHTOKEN"); }
