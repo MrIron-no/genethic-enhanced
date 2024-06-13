@@ -88,11 +88,13 @@ sub load_config
 	{
 		chop;
 
-		if ( /^((\w|_)+)(	| )+(.*)?/ )
+		if ( /^([^\s|#]+)[\s\t]+(.+)?$/ )
 		{
 			my $name = $1;
-			my $value = $4;
+			my $value = $2;
 			$name =~ tr/[A-Z]/[a-z]/;
+
+			if ( !defined $2 ) { $value = ''; }
 
 			if ( $name eq 'permitip' )
 			{
@@ -149,10 +151,10 @@ sub merge_config
 		{
 			print NEWCONFIG "$_";
 		}
-		elsif ( /^((\w|_)+)(	| )+(.*)?/ )
+		elsif ( /^([^\s|#]+)[\s\t]+(.+)?$/ )
 		{
 			my $name = $1;
-			my $value = $4;
+			my $value = $2;
 			$name =~ tr/[A-Z]/[a-z]/;
 
 			if ( !exists $conf{$name} )
@@ -222,9 +224,23 @@ sub merge_config
 			}
 			else
 			{
-				if ( $conf{$name} eq '' && $value eq '' )
+				if ( !defined $value && $conf{$name} eq '' )
 				{
 					# ignore
+				}
+				elsif ( !defined $value && $conf{$name} ne '' )
+				{
+					s/\n//;
+					$_ .= $conf{$name} . "\n";
+				}
+				elsif ( $value =~ /^\s+$/ && $conf{$name} eq '' )
+				{
+					# ignore
+				}
+				elsif ( $value =~ /^\s+$/ && $conf{$name} ne '' )
+				{
+					s/\n//;
+					$_ .= $conf{$name} . "\n";
 				}
 				elsif ( $conf{$name} eq '' )
 				{
