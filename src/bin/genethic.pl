@@ -43,7 +43,7 @@ use English qw(-no_match_vars);
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024061300;
+my $revision = 2024062200;
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = sub { while ( waitpid(-1, WNOHANG) > 0 ) { } };
@@ -702,9 +702,13 @@ sub timed_events
 		}
 
 		my $linkmsg;
+		my $itr_count = 0;
+		my $itr_tot = 0;
 
 		foreach( keys %{$data{uplinks}} )
 		{
+			$itr_count++;
+			$itr_tot++;
 			my $uplink = $_;
 			$uplink =~ s/\.$conf{networkdomain}//;
 
@@ -754,12 +758,14 @@ sub timed_events
 
 			my $uptime = easytime(time-$data{statsv}{$_}{linkts});
 			$linkmsg .= " up:$uptime] -- ";
-		}
 
-		if ( $linkmsg && $conf{reportenable} )
-		{
-			$linkmsg = substr $linkmsg, 0, -4;
-			queuemsg(2,$CMD . "UPLINK -> $linkmsg");
+			if ( $linkmsg && $conf{reportenable} && ( $itr_count == 3 || $itr_tot == keys %{$data{uplinks}} ) )
+			{
+				$linkmsg = substr $linkmsg, 0, -4;
+				queuemsg(2,$CMD . "UPLINK -> $linkmsg");
+				$itr_count = 0;
+				$linkmsg = "";
+			}
 		}
 
 		close(MRTG);
