@@ -43,7 +43,7 @@ use English qw(-no_match_vars);
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024062200;
+my $revision = 2024070500;
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = sub { while ( waitpid(-1, WNOHANG) > 0 ) { } };
@@ -82,6 +82,7 @@ $data{time}{statsl} = time - ( ( ( $conf{pollinterval} - 30 ) / 6 ) * 4 );
 $data{time}{lusers} = time - ( ( ( $conf{pollinterval} - 30 ) / 6 ) * 3 );
 $data{time}{who} = time - ( ( ( $conf{pollinterval} - 30 ) / 6 ) * 2 );
 $data{time}{rping} = time - ( ( ( $conf{pollinterval} - 30 ) / 6 ) * 1 );
+$data{time}{ison} = 30;
 $data{time}{account} = 0;
 $data{time}{lastcheck} = 0;
 $data{time}{checkupdate} = 0;
@@ -152,6 +153,7 @@ sub check_update()
 {
 	my $data = get('https://raw.githubusercontent.com/mriron-no/genethic-enhanced/master/.version');
 	open my $url_fh, '<', \$data or return -1;
+	return -1 unless defined $data;
 
 	my $uversion;
 	my $urevision;
@@ -218,7 +220,7 @@ sub do_restart
 		print $sock "QUIT :" . $_[0] . "\r\n";
 		sleep(5);
 
-		logmsg("Successfully started GenEthic-Enhanced.");
+		logmsg("Successfully started Sentinel.");
 		kill 9, $$;
 	}
 }
@@ -256,7 +258,7 @@ sub apply_update
 		}
 		else
 		{
-			logmsg("Successfully updated GenEthic-Enhanced.");
+			logmsg("Successfully updated Sentinel.");
 			exit;
 		}
 	}
@@ -291,53 +293,107 @@ sub send_warning
 
 sub push_notify
 {
-    if ( !$conf{pushenable} ) { return 0; }
+	if ( !$conf{pushenable} || $_[0] =~ /off/i ) { return 0; }
 
-    my $priority = $_[0];
-    my $message = $_[1];
-    my $url = 'https://api.pushover.net/1/messages.json';
-    my $ua = LWP::UserAgent->new();
+	my $priority = $_[0];
+	my $message = $_[1];
+	my $tag;
 
-    foreach ( @{$conf{usertoken}} )
-    {
-	my $response;
+	my $url = 'https://api.pushover.net/1/messages.json';
+	my $ua = LWP::UserAgent->new();
+	$ua->timeout(10);
 
-	if ( $priority eq 2 )
+	foreach ( @{$conf{usertoken}} )
 	{
-		$response = $ua->post(
-			$url,
-			[
-				"token" =>  $conf{pushtoken},
-				"user" =>  $_,
-				"priority" => 2,
-				"expire" => $conf{pushexpire},
-				"retry" => $conf{pushretry},
-				"message" => $message,
-			]
-		);
-	}
-	else
-	{
-		$response = $ua->post(
-			$url,
-			[
-				"token" =>  $conf{pushtoken},
-				"user" =>  $_,
-				"priority" => $priority,
-				"message" => $message,
-			]
-		);
-	}
+		my $response;
 
-        if ($response->is_success) {
-            logmsg("Notification sent successfully to $_ (pri $priority)");
-        } else {
-            logmsg("Failed to send notification to $_: " . $response->status_line);
-            logmsg("Response content: " . $response->decoded_content);
-        }
-    }
+		if ( $priority eq 2 && defined $_[2] && defined $_[3] )
+		{
+			my $srv1 = $_[2];
+			$srv1 =~ s/\.$conf{networkdomain}//i;
+			$srv1 =~ s/\./\_/g;
+			my $srv2 = $_[3];
+			$srv2 =~ s/\.$conf{networkdomain}//i;
+			$srv2 =~ s/\./\_/g;
+
+			$tag = $srv1 . "=" . $srv2;
+
+			$response = $ua->post(
+				$url,
+				[
+					"token" =>  $conf{pushtoken},
+					"user" =>  $_,
+					"priority" => 2,
+					"expire" => $conf{pushexpire},
+					"retry" => $conf{pushretry},
+					"message" => $message,
+					"tags" => $tag,
+				]
+			);
+		}
+		elsif ( $priority eq 2 && !defined $_[2] )
+		{
+			$response = $ua->post(
+				$url,
+				[
+					"token" =>  $conf{pushtoken},
+					"user" =>  $_,
+					"priority" => 2,
+					"expire" => $conf{pushexpire},
+					"retry" => $conf{pushretry},
+					"message" => $message,
+				]
+			);
+		}
+		else
+		{
+			$response = $ua->post(
+				$url,
+				[
+					"token" =>  $conf{pushtoken},
+					"user" =>  $_,
+					"priority" => $priority,
+					"message" => $message,
+				]
+			);
+		}
+
+		if ($response->is_success) {
+			logmsg("Notification sent successfully to $_ (pri $priority)");
+			logmsg("Tags: $tag") if ( defined $tag );
+		} else {
+			logmsg("Failed to send notification to $_: " . $response->status_line);
+			logmsg("Response content: " . $response->decoded_content);
+		}
+	}
 }
 
+sub cancel_pushretry
+{
+	if ( !$conf{pushenable} || $_[0] ne 2 ) { return 0; }
+
+	my $srv1 = $_[1];
+	$srv1 =~ s/\.$conf{networkdomain}//i;
+	$srv1 =~ s/\./\_/g;
+	my $srv2 = $_[2];
+	$srv2 =~ s/\.$conf{networkdomain}//i;
+	$srv2 =~ s/\./\_/g;
+
+	my $tag = $srv1 . "=" . $srv2;
+	my $url = "https://api.pushover.net/1/receipts/cancel_by_tag/" . $tag . ".json";
+	my $ua = LWP::UserAgent->new();
+	$ua->timeout(10);
+	my $response;
+
+	$response = $ua->post( $url, [ "token" => $conf{pushtoken}, ] );
+
+        if ($response->is_success) {
+		logmsg("Emergency retries successfully cancelled for tags: $tag");
+	} else {
+		logmsg("Failed to cancel emergency retries with tags $tag: " . $response->status_line);
+		logmsg("Response content: " . $response->decoded_content);
+	}
+}
 
 sub queuemsg
 {
@@ -374,6 +430,10 @@ sub timed_events
 		{
 			queuemsg(3,$CMD . chr(3) . 4 . chr(2) . "UPDATE" . chr(2) . ": $update - run " . chr(31) . "update install" . chr(31) . " to update." . chr(3));
 		}
+		else
+		{
+			logmsg("There was an error checking for updates.");
+		}
 	}
 	elsif ( time - $data{time}{connexitclean} > 3600 )
 	{
@@ -405,14 +465,12 @@ sub timed_events
 	if ( time - $data{time}{lastcheck} >= $conf{cetimethres} && !$conf{hubmode} )
 	{
 		my $time;
-		my $userchange = 0;
 		my $usermore = 0;
 		my $userless = 0;
 		foreach $time ( sort keys %{$data{notice}{move}} )
 		{
 			if ( $time >= time - $conf{cetimethres} )
 			{
-				$userchange += $data{notice}{move}{$time};
 				if ( $data{notice}{move}{$time} =~ /^\d/ )
 				{
 					$usermore += $data{notice}{move}{$time};
@@ -429,35 +487,30 @@ sub timed_events
 		}
 
 		# Possible attack - first cycle.
-		if ( abs($userchange) >= $conf{ceuserthres} && !$data{notice}{cycles} )
+		if ( ( abs($usermore) >= $conf{ceuserthres} || abs($userless) >= $conf{ceuserthres} ) && !$data{notice}{cycles} )
 		{
-			if ( $userchange =~ /^\d+$/ ) { $userchange = "+$userchange"; }
-	
-			send_warning("Possible attack, $userchange (+$usermore/-$userless) users in $conf{cetimethres} seconds ($data{lusers}{locusers} users)");
+			send_warning("Possible attack: +$usermore/-$userless users in $conf{cetimethres} seconds ($data{lusers}{locusers} users)");
+			push_notify($conf{pushuserchange}, "USER CHANGE: +$usermore/-$userless");
 
-			if ( $conf{pushuserchange} !~ /off/i )
-			{
-				push_notify($conf{pushuserchange}, "USER CHANGE: +$usermore/-$userless");
-			}
 #			$data{notice}{lastprint} = time;
+			$data{notice}{usermore} = $usermore;
+			$data{notice}{userless} = $userless;
 			$data{notice}{cycles} = 1;
 		}
-		# Possible attach still ongoing, new cycle. 
-		elsif ( abs($userchange) >= $conf{ceuserthres} && $data{notice}{cycles} )
+		# Possible attack still ongoing, new cycle. 
+		elsif ( ( abs($usermore) >= $conf{ceuserthres} || abs($userless) >= $conf{ceuserthres} ) && $data{notice}{cycles} )
 		{
 #			$data{notice}{lastprint} = time;
 			$data{notice}{usermore} += $usermore;
 			$data{notice}{userless} += $userless;
-			$data{notice}{userchange} += $userchange;
 			$data{notice}{cycles}++;
 		}
 		# No more user changes above threshold. Possible attack has stopped. Summarise and write to log.
-		elsif ( abs($userchange) <= $conf{ceuserthres} && $data{notice}{cycles} )
+		elsif ( abs($usermore) <= $conf{ceuserthres} && abs($userless) <= $conf{ceuserthres} && $data{notice}{cycles} )
 		{
 			if ( $data{notice}{cycles} > 1 )
 			{
-				if ( $data{notice}{userchange} =~ /^\d+$/ ) { $data{notice}{userchange} = "+$data{notice}{userchange}"; }
-				send_warning("Possible attack " . chr(31) . "ended" . chr(31) . ", $data{notice}{userchange} (+$data{notice}{usermore}/-$data{notice}{userless}) users in " . $conf{cetimethres} * $data{notice}{cycles} . " seconds ($data{lusers}{locusers} users)");
+				send_warning("Possible attack " . chr(31) . "ended" . chr(31) . ": +$data{notice}{usermore}/-$data{notice}{userless} users in " . $conf{cetimethres} * $data{notice}{cycles} . " seconds ($data{lusers}{locusers} users)");
 			}
 
 			# Find next unique attack id
@@ -499,7 +552,6 @@ sub timed_events
 			$data{notice}{cycles} = 0;
 			$data{notice}{usermore} = 0;
 			$data{notice}{userless} = 0;
-			$data{notice}{userchange} = 0;
 		}
 
 		$data{time}{lastcheck} = time;
@@ -543,6 +595,13 @@ sub timed_events
 				$pcent = int($used / $time);
 			}
 
+			if ( $pcent >= $conf{cputhres} )
+			{
+				send_warning("High CPU usage: $pcent pct");
+				push_notify($conf{pushcpu}, "CPU: $pcent%");
+			}
+
+			$trafmsg .= chr(2) . "cpu" . chr(2) . " $pcent pct ";
 			print MRTG sprintf("CPU:%s\n",$pcent);
 
 			%{$data{cpu}{old}} = %{$data{cpu}{new}};
@@ -673,7 +732,7 @@ sub timed_events
 			{
 				my $rpdiff = 0;
 				my $hub = $_;
-				$hub =~ s/\.$conf{networkdomain}//;
+				$hub =~ s/\.$conf{networkdomain}//i;
 
 				$rpingmsg .= chr(2) . $hub . chr(2) . ":$data{clines}{$_}";
 				$rpdiff = $data{clines}{$_} - $data{last}{rping}{$_};
@@ -687,8 +746,8 @@ sub timed_events
 				if ( $data{clines}{$_} =~ /^\d+$/ )
 				{
 					my $srv = $_;
-					$srv =~ s/\.$conf{networkdomain}//;
-					$srv =~ s/\./\_/;
+					$srv =~ s/\.$conf{networkdomain}//i;
+					$srv =~ s/\./\_/g;
 					print MRTG "RPING_$srv:$data{clines}{$_}\n";
 					$data{last}{rping}{$_} = $data{clines}{$_};
 				}
@@ -710,7 +769,7 @@ sub timed_events
 			$itr_count++;
 			$itr_tot++;
 			my $uplink = $_;
-			$uplink =~ s/\.$conf{networkdomain}//;
+			$uplink =~ s/\.$conf{networkdomain}//i;
 
 			$linkmsg .= chr(2) . $uplink . chr(2) ."\[";
 
@@ -729,8 +788,8 @@ sub timed_events
 				$data{last}{rping}{$_} = $data{clines}{$_};
 
 				my $srv = $_;
-				$srv =~ s/\.$conf{networkdomain}//;
-				$srv =~ s/\./\_/;
+				$srv =~ s/\.$conf{networkdomain}//i;
+				$srv =~ s/\./\_/g;
 				print MRTG "RPING_$srv:$data{clines}{$_}\n";
 			}
 
@@ -751,8 +810,8 @@ sub timed_events
 			{
 				$data{last}{sendq}{$_} = $data{uplinks}{$_};
 				my $srv = $_;
-				$srv =~ s/\.$conf{networkdomain}//;
-				$srv =~ s/\./\_/;
+				$srv =~ s/\.$conf{networkdomain}//i;
+				$srv =~ s/\./\_/g;
 				print MRTG "SENDQ_$srv:$data{uplinks}{$_}\n";
 			}
 
@@ -996,6 +1055,12 @@ sub timed_events
 		$data{time}{account} = time;
 	}
 
+	if ( ( time - $data{time}{ison} ) >= 300 )
+	{
+		queuemsg(1,"ISON :@{$conf{nicks}}");
+		$data{time}{ison} = time;
+	}
+
 	if ( ( ( time - $data{time}{who} ) >= ( $conf{pollinterval} - 30 ) ) && !$conf{hubmode} && $conf{locglineaction} !~ /disable/i )
 	{
 		if ( $data{status}{who} )
@@ -1042,10 +1107,10 @@ sub timed_events
 
 		foreach( keys %{$data{clines}} )
 		{
-			if ( $data{clines}{$_} > $conf{rpingwarn} && $data{clines}{$_} > $data{last}{rping}{$_} && exists $data{uplinks}{$_} )
+			if ( int($data{clines}{$_}) > $conf{rpingwarn} && int($data{clines}{$_}) > $data{last}{rping}{$_} && exists $data{uplinks}{$_} )
 			{
 				my $srv = $_;
-				$srv =~ s/\.$conf{networkdomain}//;
+				$srv =~ s/\.$conf{networkdomain}//i;
 
 				my $diff = $data{clines}{$_} - $data{last}{rping}{$_};
 				if ( $diff =~ /^\d+$/ ) { $diff ="+$diff"; }
@@ -1057,10 +1122,7 @@ sub timed_events
 		if ( $notify )
 		{
 			send_warning("Detected RPING: $warnmsg");
-			if ( $conf{pushrping} !~ /off/i )
-			{
-				push_notify($conf{pushrping}, "RPING: $warnmsg");
-			}
+			push_notify($conf{pushrping}, "RPING: $warnmsg");
 		}
 		$data{status}{rpwarn} = 0;
 	}
@@ -1075,7 +1137,7 @@ sub timed_events
 			if ( $data{uplinks}{$_} > $conf{sendqwarn} && $data{uplinks}{$_} > $data{last}{sendq}{$_} )
 			{
 				my $srv = $_;
-				$srv =~ s/\.$conf{networkdomain}//;
+				$srv =~ s/\.$conf{networkdomain}//i;
 
 				my $diff = $data{uplinks}{$_} - $data{last}{sendq}{$_};
 				if ( $diff =~ /^\d+$/ ) { $diff ="+$diff"; }
@@ -1087,10 +1149,7 @@ sub timed_events
 		if ( $notify )
 		{
 			send_warning("Detected SENDQ: $warnmsg");
-			if ( $conf{pushsendq} !~ /off/i )
-			{
-				push_notify($conf{pushsendq}, "SENDQ: $warnmsg");
-			}
+			push_notify($conf{pushsendq}, "SENDQ: $warnmsg");
 		}
 
 		$data{status}{sqwarn} = 0;
@@ -1141,7 +1200,11 @@ sub irc_loop
 					queuemsg(1,"MODE $conf{channel} +l $data{lusers}{maxusers}");
 				}
 
-				if ( $conf{chanmode} )
+				if ( $conf{chanmode} =~ /k/ )
+				{
+					queuemsg(1,"MODE $conf{channel} $conf{chanmode} $conf{chankey}");
+				}
+				elsif ( $conf{chanmode} )
 				{
 					queuemsg(1,"MODE $conf{channel} $conf{chanmode}");
 				}
@@ -1535,6 +1598,24 @@ sub irc_loop
 		{
 			$data{lusers}{locusers} = $1;
 		}
+		elsif ( $line =~ /^303 $data{nick} :(.*)/i )
+		{
+			my %taken;
+			foreach( split(/ /,$1) )
+			{ $taken{$_} = 1; }
+
+			foreach ( @{$conf{nicks}} )
+			{
+				last if $_ eq $data{nick} ;
+
+				if ( ! exists $taken{$_} )
+				{
+					queuemsg(1,"NICK $_");
+					last;
+				}
+			}
+
+		}
 		elsif ( $line =~ s/^354 $data{nick} //i )
 		{
 			if ( $line =~ /^((\~|\w|\{|\}|\[|\]|\^|\.|\-|\|)+) (.*) ((\w|\-|\:|\_|\.)+) ((\\|\||\`|\[|\]|\{|\}|\-|\_|\w|\^)+) ((\w|\@|\<|\+|\-|\*)+) (\d+) (\w+) :(.*)$/i )
@@ -1601,7 +1682,7 @@ sub irc_loop
 			# end of WHO
 			if ( !$data{rfs} )
 			{ 
-				queuemsg(2,$CMD . chr(2) . "GenEthic-Enhanced" . chr(2) . " v$conf{version}, ready.");
+				queuemsg(2,$CMD . chr(2) . "Sentinel" . chr(2) . " v$conf{version}, ready.");
 			}
 			$data{rfs} = 1;
 
@@ -1684,7 +1765,6 @@ sub irc_loop
 				$data{status}{statsl} = 1;
 				$data{status}{sqwarn} = 1;
 			}
-
 		}
 		elsif ( $line =~ /^RPONG $data{nick} (.*) (\d+) :/ )
 		{
@@ -1719,7 +1799,7 @@ sub irc_loop
 				my $failhost = $2;
 
 				$data{operfail}{$failhost}++;
-				queuemsg(2,$CMD . chr(2) . "OPER Failed" . chr(2) . " for $failnick\!$failhost ($data{operfail}{$failhost})");
+				queuemsg(2,$CMD . chr(3) . 4 . chr(2) . "OPER Failed" . chr(2) . " for $failnick\!$failhost ($data{operfail}{$failhost})" . chr(3));
 				if ( $data{operfail}{$failhost} >= $conf{operfailmax} )
 				{
 					delete $data{operfail}{$failhost};
@@ -1747,7 +1827,7 @@ sub irc_loop
 					$opermode = "LocalOPER";
 				}
 
-				queuemsg(2,$CMD . "$opernick\!$operhost is now ". chr(31) ."$opermode" . chr(31));
+				queuemsg(2,$CMD . chr(3) . 4 . "$opernick\!$operhost is now ". chr(31) ."$opermode" . chr(31) . chr(3));
 				if ( !($opernick =~ /^$data{nick}$/i ) && $conf{chaninvite} )
 				{
 					queuemsg(2,"INVITE $opernick $conf{channel}");
@@ -1761,9 +1841,10 @@ sub irc_loop
 				my $server1 = $1;
 				my $server2 = $2;
 
-				if ( ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i ) && $conf{pushlocsplit} !~ /off/i && $conf{pushnetjoin} !~ /off/i )
+				if ( ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i ) && $conf{pushlocsplit} !~ /off/i )
 				{
 					push_notify($conf{pushnetjoin}, "NETJOIN $server1 $server2");
+					cancel_pushretry($conf{pushlocsplit},$server1,$server2);
 					$notified = 1;
 				}
 				else
@@ -1773,14 +1854,16 @@ sub irc_loop
 						if ( $server1 =~ /$_/i || $server2 =~ /$_/i )
 						{
 							push_notify($conf{pushnetjoin}, "NETJOIN $server1 $server2");
+							cancel_pushretry($conf{splitlist}{$_},$server1,$server2);
 							$notified = 1;
 						}
 					}
 				}
 
-				if ( $conf{pushnetall} !~ /off/i && !$notified && $conf{pushnetjoin} !~ /off/i )
+				if ( $conf{pushnetall} !~ /off/i && !$notified )
 				{
 					push_notify($conf{pushnetjoin}, "NETJOIN $server1 $server2");
+					cancel_pushretry($conf{pushnetall},$server1,$server2);
 				}
 			}
 			elsif ( $line =~ /^Net break: ([^\s]+) ([^\s]+) \((.*)\)$/ )
@@ -1801,9 +1884,9 @@ sub irc_loop
 					delete $data{uplinks}{$server1};
 				}
 
-				if ( ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i ) && $conf{pushlocsplit} !~ /off/i )
+				if ( ( $server1 =~ /$data{servername}/i || $server2 =~ /$data{servername}/i ) )
 				{
-					push_notify($conf{pushlocsplit}, "NETQUIT $server1 $server2 ($message)");
+					push_notify($conf{pushlocsplit}, "NETQUIT $server1 $server2 ($message)",$server1,$server2);
 					$notified = 1;
 				}
 				else
@@ -1812,15 +1895,15 @@ sub irc_loop
 					{
 						if ( $server1 =~ /$_/i || $server2 =~ /$_/i )
 						{
-							push_notify($conf{splitlist}{$_}, "NETQUIT $server1 $server2 ($message)");
+							push_notify($conf{splitlist}{$_}, "NETQUIT $server1 $server2 ($message)",$server1,$server2);
 							$notified = 1;
 						}
 					}
 				}
 
-				if ( $conf{pushnetall} !~ /off/i && !$notified )
+				if ( !$notified )
 				{
-					push_notify($conf{pushnetall}, "NETQUIT $server1 $server2 ($message)");
+					push_notify($conf{pushnetall}, "NETQUIT $server1 $server2 ($message)",$server1,$server2);
 				}
 			}
 		}
@@ -2101,6 +2184,9 @@ sub load_config
 		if ( !( $newconf{cetimethres} =~ /^\d+$/ ) )
 		{ push(@ECONF,"CETIMETHRES"); }
 
+		if ( !( $newconf{cputhres} =~ /^\d+$/ ) )
+		{ push(@ECONF,"CPUTHRES"); }
+
 		if ( !( $newconf{rname} =~ /^.+$/ ) )
 		{ push(@ECONF,"RNAME"); }
 
@@ -2126,9 +2212,11 @@ sub load_config
 		if ( !( $newconf{pushsendq} =~ /^off|\-2|\-1|0|1|2$/i ) )
 		{ push(@ECONF,"PUSHSENDQ"); }
 		if ( !( $newconf{pushrping} =~ /^off|\-2|\-1|0|1|2$/i ) )
-		{ push(@ECONF,"PUSHPING"); }
+		{ push(@ECONF,"PUSHRPING"); }
 		if ( !( $newconf{pushuserchange} =~ /^off|\-2|\-1|0|1|2$/i ) )
 		{ push(@ECONF,"PUSHUSERCHANGE"); }
+		if ( !( $newconf{pushcpu} =~ /^off|\-2|\-1|0|1|2$/i ) )
+		{ push(@ECONF,"PUSHCPU"); }
 
 		if ( !( $newconf{rpingwarn} =~ /^.+$/ ) )
 		{ push(@ECONF,"RPINGWARN"); }
@@ -2264,7 +2352,7 @@ sub daemonize
 		if ( $pid )
 		{
 			# I'm daddy
-			print "GenEthic-Enhanced v$conf{version} started (PID: $pid).\n";
+			print "Sentinel v$conf{version} started (PID: $pid).\n";
 
 			my $pidfile = File::Pid->new({
 				file => $conf{path} . '/bin/genethic.pid',
@@ -2543,7 +2631,7 @@ sub dcc
 						{
 							$auth = 1;
 							print DCCLOG sprintf("[%s] %s: authenticated\n",unix2date(time),$client->peerhost);
-							print $client "GenEthic v$conf{version} DCC Interface\n";
+							print $client "Sentinel v$conf{version} DCC Interface\n";
 
 							my $eoff = easytime($offset);
 							if ( $eoff =~ /^\d/ ) { $eoff = "+$eoff"; }
@@ -3043,7 +3131,7 @@ sub dcc
 								my $ts2  = $5;
 								my $msg  = $6;
 
-								$serv =~ s/\.$conf{networkdomain}//;
+								$serv =~ s/\.$conf{networkdomain}//i;
 
 								print $client sprintf("[%s - %s] %6s %s glined %s (%s)\n",unix2date($ts1,$offset),unix2date($ts2,$offset),$mode,$serv,$user,$msg);
 								$count++;
@@ -3101,7 +3189,7 @@ sub dcc
 					elsif ( $line =~ /^quit$/i )
 					{
 						print DCCLOG sprintf("[%s] %s: quit\n",unix2date(time),$client->peerhost);
-						print $client "Thanks for using GenEthic v$conf{version}, bye!\n";
+						print $client "Thanks for using Sentinel v$conf{version}, bye!\n";
 						exit;
 					}
 					else
@@ -3168,7 +3256,7 @@ sub cpu
 		{
 			chop;
 			s/ +/ /g;
-			if ( /^cpu (\d+) (\d+) (\d+) (\d+)$/ )
+			if ( /^cpu (\d+) (\d+) (\d+) (\d+)/ )
 			{
 				$cpu{used} = $1 + $2 + $3;
 				$cpu{idle} = $4;
