@@ -43,7 +43,7 @@ use English qw(-no_match_vars);
 $|=1;
 
 my $version = '1.0';
-my $revision = 2024070500;
+my $revision = 2024070600;
 
 $SIG{PIPE} = "IGNORE";
 $SIG{CHLD} = sub { while ( waitpid(-1, WNOHANG) > 0 ) { } };
@@ -151,7 +151,7 @@ while(1)
 
 sub check_update()
 {
-	my $data = get('https://raw.githubusercontent.com/mriron-no/genethic-enhanced/master/.version');
+	my $data = get('https://raw.githubusercontent.com/UndernetIRC/sentinel/main/.version');
 	open my $url_fh, '<', \$data or return -1;
 	return -1 unless defined $data;
 
@@ -234,7 +234,7 @@ sub apply_update
 	my $file = $conf{path} . "/.update/update.pl";
 
 	# Downloading update script
-	my $rc = getstore('https://raw.githubusercontent.com/MrIron-no/genethic-enhanced/master/src/update.pl', $file);
+	my $rc = getstore('https://raw.githubusercontent.com/UndernetIRC/sentinel/main/tools/update.pl', $file);
 	if ( is_error($rc) )
 	{ 
 		logmsg("Error when downloading update script: $rc");
